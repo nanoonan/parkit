@@ -1,0 +1,71 @@
+
+parkit
+clusterenv
+
+Dict, Queue, Log
+
+local <- Dict.create(name, namespace, install_path, metadata)
+local <- Dict(name, namespace, install_path)
+
+transaction => (commit-timestamp, commit-id, {(install_path,namespace,name):[actions]})
+action => (op, [(key, value_type)], tags)
+op => update, delete
+
+immutable (key, value)
+queue
+log
+
+mutable (key, value)
+only wait supported
+
+when: non-blocking
+wait: blocking
+
+def do_something():
+	...
+
+cluster:
+	install -> main thread -> run module in another thread -> exit when no other threads running
+
+# put onto background scheduler thread
+clock.when(
+	lambda tick: tick.seconds % 15 == 0 and tick.weekday < 6,
+	do_something
+)
+
+# wait => wait for transaction events on object
+# wait for directory event where new Dict inserted by 'my-proc'
+directory.when(
+	lambda event,
+	do_something()
+)
+directory.wait(
+	lambda event: len([1 for action in event.actions if 'my-proc' in action.tags and action.op == 'insert' and value_type == Dict])
+	...
+)
+..do something
+
+# conditional get
+# wait for tagged queue events
+obj = queue.get(
+	lambda key, tags, _: 'my-proc' in tags,
+	lambda key, _, value_type: value_type == int
+)
+
+
+# read-only dictionary of collections in namespace
+class Directory()
+
+	__init__(name, install_path)
+
+	wait()
+	get(name)
+
+	keys()
+
+	values()
+
+	items()
+
+	delete
+	...
