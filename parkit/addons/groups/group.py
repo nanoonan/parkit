@@ -1,27 +1,42 @@
 import logging
 
-from parkit.adapters.collection import Collection
+from parkit.adapters import (
+  Collection,
+  CreationMode,
+  Dict, 
+  Log
+)
 from parkit.constants import *
 from parkit.decorators import (
+  AccessControl,
+  AccessPermission,
   Pickle,
   Serialization
 )
 from parkit.exceptions import *
 from parkit.utility import *
+from parkit.addons.groups.clustertools import start_cluster
+from parkit.addons.groups.constants import *
 
 logger = logging.getLogger(__name__)
 
 class GroupPrototype(Collection):  
 
-  def __init__(self, name, namespace, install_path, encoders, versioned, **kwargs):      
+  def __init__(self, name, mode, namespace, install_path, encoders, versioned, metadata, data, **kwargs):      
     
     super().__init__(
-      name, namespace = namespace, install_path = install_path, 
+      name, mode, namespace = namespace, install_path = install_path, 
       serialization = Serialization(*encoders), versioned = versioned, 
-      integer_keys = False, create = True, **kwargs
+      integer_keys = False, metadata = metadata, data = data, 
+      **kwargs
     )
 
-    self._log = 
+    # try:
+    #   self._queue = Queue.create(
+    #     MONITOR_QUEUE_NAME, namespace = GROUPS_NAMESPACE
+    #   ) 
+    # except ObjectExists:
+    #   self._queue = Queue(MONITOR_QUEUE_NAME, namespace = GROUPS_NAMESPACE)
     
   def __len__(self):
     return self.engine.size()
@@ -30,11 +45,11 @@ class GroupPrototype(Collection):
     return self.engine.size()
 
   def create(self, clock):
-    if not issubclass(clock, Clock):
+    if not issubclass(type(clock), Clock):
       raise InvalidArgument()
 
   def terminate(self, instance):
-    if not issubclass(clock, ClockInstance):
+    if not issubclass(type(clock), ClockInstance):
       raise InvalidArgument()
 
   def instances(self):
@@ -42,19 +57,65 @@ class GroupPrototype(Collection):
 
 class Group(GroupPrototype):
 
+  intialized = False
+
+  @staticmethod
+  def get_settings():
+    settings = Dict.create_or_bind(
+      SETTINGS_NAME, namespace = GROUPS_NAMESPACE, 
+      data = dict(
+        process_termination_timeout = DEFAULT_PROCESS_TERMINATION_TIMEOUT,
+        cluster_size = DEFAULT_CLUSTER_SIZE
+      ) 
+    )
+    return AccessControl(
+      settings,
+      permissions = [
+        AccessPermission.AllowRead,
+        AccessPermission.AllowReplace
+      ]
+    )
+
+  @staticmethod
+  def init():
+    start_cluster(Group.get_settings())
+    Group.initialized = True
+
+  @staticmethod
+  def create_or_bind(
+    name, namespace = None, install_path = None, encoders = [Pickle()], 
+    versioned = True, metadata = None, **kwargs
+  ):
+    if not Group.initialized:
+      raise NotAvailable()
+    return GroupPrototype(
+      name, CreationMode.Create,
+      namespace, install_path, 
+      encoders, versioned, 
+      metadata, None,
+      **kwargs
+    )
+
   @staticmethod
   def create(
     name, namespace = None, install_path = None, encoders = [Pickle()], 
     versioned = True, metadata = None, **kwargs
   ):
+    if not Group.initialized:
+      raise NotAvailable()
     return GroupPrototype(
-      name, namespace = namespace, install_path = install_path, 
-      encoders = encoders, versioned = versioned, metadata = metadata,
+      name, CreationMode.Create,
+      namespace, install_path, 
+      encoders, versioned, 
+      metadata, None,
       **kwargs
     )
 
   def __init__(self, name, namespace = None, install_path = None, **kwargs):
+    if not Group.initialized:
+      raise NotAvailable()
     Collection.__init__(
-      self, name, namespace = namespace , install_path = install_path, 
-      create = False, **kwargs
+      self, name, CreationMode.Bind,
+      namespace = namespace, install_path = install_path, 
+      **kwargs
     )

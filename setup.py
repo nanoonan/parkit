@@ -7,7 +7,7 @@ setup(
   author_email='nanoonan@marvinsmind.com',
   packages=['parkit'],
   scripts=[],
-  url='http://pypi.python.org/pypi/parcolls/',
+  url='http://pypi.python.org/pypi/parkit/',
   license='LICENSE.txt',
   description='Toolkit for parallel applications.',
   long_description=open('README.md').read(),
@@ -16,6 +16,7 @@ setup(
     'pandas',
     'numpy',
     'lmdb',
-    'daemoniker'
+    'daemoniker',
+    'psutil'
   ],
 )

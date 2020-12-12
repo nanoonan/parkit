@@ -1,5 +1,5 @@
 import atexit
-import distutils
+import distutils.util
 import enum
 import lmdb
 import logging

@@ -4,7 +4,7 @@ import concurrent.futures
 import threading
 import time
 
-from parcolls.asyncthread import (
+from parkit.asyncthread import (
   AsyncThread,
   AsyncThreadState
 )

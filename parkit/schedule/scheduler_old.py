@@ -10,14 +10,14 @@ import subprocess
 import tempfile
 import uuid
 
-from parcolls.constants import *
-from parcolls.daemonclean import (
+from parkit.constants import *
+from parkit.daemonclean import (
   cleanup_daemon_tree,
   terminate_daemon
 )
-from parcolls.task import Task
-from parcolls.utility import create_key
-from parcolls.workspace import (
+from parkit.task import Task
+from parkit.utility import create_key
+from parkit.workspace import (
   KeyPrefixDict,
   Workspace
 )

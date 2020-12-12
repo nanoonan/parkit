@@ -75,6 +75,15 @@ def create_id(obj):
 def create_string_digest(*segments):
   return str(mmh3.hash128(''.join([str(segment) for segment in segments]), MMH3_SEED, True, signed = False))
     
+def testgen(x):
+  txn = x.engine.environment._env.begin(
+    db = None, write = True, 
+    parent = None, buffers = True
+  )
+  x.engine.set_context(txn)
+  yield x
+  x.engine.clear_context()
+
 def polling_loop(interval, max_iterations = None, initial_offset = None):
   iteration = 0
   try:
@@ -101,7 +110,7 @@ def get_calling_modules():
     if module is not None:
       name = module.__name__
       package = module.__name__.split('.')[0]
-      if package != 'pinky':
+      if package != 'parkit':
         modules.append(name)
     frame = frame.f_back
   return modules
@@ -109,17 +118,17 @@ def get_calling_modules():
 class HighResolutionTimer():
 
   def start(self):
-    pass
+    self.start_ns = time.time_ns()
 
   def stop(self):
-    pass
+    elapsed = time.time_ns() - self.start_ns
+    print('elapsed: {0} ms'.format(elapsed / 1e6))
     
   def __enter__(self):
-    self.start_ns = time.time_ns()
+    self.start()
     return self
 
   def __exit__(self, exc_type, exc_value, exc_traceback):
-    elapsed = time.time_ns() - self.start_ns
-    print('elapsed: {0} ms'.format(elapsed / 1e6))
+    self.stop()
     if exc_value is not None:
       raise exc_value

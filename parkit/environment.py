@@ -2,13 +2,14 @@ import logging
 import os
 import uuid
 
+from parkit.addons.groups import Group
 from parkit.constants import *
 from parkit.exceptions import *
 from parkit.utility import *
 
 logger = logging.getLogger(__name__)
 
-def init(install_path = None, address = None, port = None, profile = 'default'):
+def init(install_path = None, groups = False, profile = 'default'):
   try:
     if install_path is None:
       install_path = os.getenv(INSTALL_PATH_ENVNAME)
@@ -22,10 +23,6 @@ def init(install_path = None, address = None, port = None, profile = 'default'):
       os.makedirs(install_path)
     except FileExistsError:
       pass
-    if address is not None:
-      setenv(ADDRESS_ENVNAME, address)
-    if port is not None:
-      setenv(PORT_ENVNAME, port)
     if profile is None:
       if envexists(LMDB_PROFILE_ENVNAME):
         profile = getenv(LMDB_PROFILE_ENVNAME)
@@ -42,6 +39,8 @@ def init(install_path = None, address = None, port = None, profile = 'default'):
       setenv(INSTALL_PATH_ENVNAME, install_path)
     if not envexists(PROCESS_INSTANCE_UUID_ENVNAME):
       setenv(PROCESS_INSTANCE_UUID_ENVNAME, str(uuid.uuid4()))
+    if groups:
+      Group.init()
   except Exception as e:
     log_and_raise(e)
 

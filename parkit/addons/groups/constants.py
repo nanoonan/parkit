@@ -1,0 +1,14 @@
+import multiprocessing
+
+DAEMONIKER_WINDOWS_PROCESS_TAG = 'daemoniker._signals_windows'
+
+PID_FILENAME_PREFIX = 'pinky-'
+PID_FILENAME_EXTENSION = '.pid'
+
+SETTINGS_NAME = 'settings'
+MONITOR_QUEUE_NAME = 'monitor_queue'
+PROCESSES_NAME = 'processes'
+GROUPS_NAMESPACE = '__groups__'
+
+DEFAULT_PROCESS_TERMINATION_TIMEOUT = 5
+DEFAULT_CLUSTER_SIZE = 1

@@ -4,8 +4,8 @@ import copy
 import logging
 import threading
 
-from parcolls.exceptions import *
-from parcolls.utility import *
+from parkit.exceptions import *
+from parkit.utility import *
 
 logger = logging.getLogger(__name__)
 

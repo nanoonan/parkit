@@ -21,9 +21,9 @@ class CollectionContext(TransactionContext):
     self._collections = list(collections)
     
     self._parent = None
-    reference_decorator = self._collections[0].engine
-    if isinstance(reference_decorator, TransactionDecorator):
-      self._parent = reference_decorator.context
+    # reference_decorator = self._collections[0].engine
+    # if isinstance(reference_decorator, TransactionDecorator):
+    #   self._parent = reference_decorator.context
     
     super().__init__(
       self._parent,
@@ -36,11 +36,13 @@ class CollectionContext(TransactionContext):
       parent_txn = self._parent.get_transaction()
       return self._collections[0].base_engine.environment.get_transaction(mode = self._mode, parent = parent_txn)
     else:
-      return self._collections[0].base_engine.environment.get_transaction(mode = self._mode)
+      return self._collections[0].engine.environment.get_transaction(mode = self._mode)
 
   def on_enter(self):
+    txn = self.get_transaction()
     for collection in self._collections:
-      collection.push_decorator(TransactionInjection(self))
+      collection.engine.set_context(txn)
+      #collection.push_decorator(TransactionInjection(self))
     if len(self._collections) == 1:
       return self._collections[0]
     else:
@@ -48,7 +50,8 @@ class CollectionContext(TransactionContext):
 
   def on_exit(self):
     for collection in self._collections:
-      collection.pop_decorator()
+      collection.engine.clear_context()
+      #collection.pop_decorator()
 
 class WriteTransaction(CollectionContext):
 

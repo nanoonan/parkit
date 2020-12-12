@@ -86,6 +86,12 @@ class EncoderDecorator(
     self._encode_keys = encode_keys
     self._encode_values = encode_values
 
+  def key(self, key):
+    return self._encoder.encode(key) if self._encode_keys else key
+
+  def value(self, value):
+    return self._encoder.encode(value) if self._encode_values else value
+
   def delete(self, key, txn_context = None):
     try:
       key = self._encoder.to_bytes(Key(key)).item if self._encode_keys else key

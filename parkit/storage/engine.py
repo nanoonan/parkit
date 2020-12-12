@@ -126,6 +126,16 @@ class StorageEngine():
     self._id = create_string_digest(
       self._env.install_path, self._env.context, self._db_name, self._integer_keys, self._versioned
     )
+    self._db = self._env.get_database(self._encoded_db_name, self._integer_keys)
+    self._txn = None
+
+  @property
+  def database(self):
+    return self._db
+
+  @property
+  def id(self):
+    return self._id
 
   @property
   def base_engine(self):
@@ -168,6 +178,14 @@ class StorageEngine():
     )
     self.__dict__ = {**from_wire, **local}
 
+  def clear_context(self):
+    self._txn = None
+    self._cursor = None
+
+  def set_context(self, txn):
+    self._txn = txn
+    self._cursor = txn.cursor(db = self._db)
+
   def version(self, txn_context = None):
     if self._versioned:
       with StorageEngine.Executor(TransactionMode.Reader, self, txn_context = txn_context) as (ctx, txn):
@@ -204,18 +222,28 @@ class StorageEngine():
   def append(self, value, txn_context = None):
     if not self._integer_keys:
       raise InvalidOperation()
-    with StorageEngine.Executor(TransactionMode.Writer, self, txn_context = txn_context) as (ctx, txn):
-      if not ctx.get_cursor().last():
-        key = struct.pack('@N', 0)
-      else:
-        key = struct.unpack('@N', ctx.get_cursor().key())[0] + 1
-      result = txn.put(
-        key, value, append = True, overwrite = False, 
-        db = ctx.get_database()
-      )
-      if result:
-        ctx.set_changed(True)
-      return result
+    if self._txn is None:
+      txn = self._env.get_transaction()
+      db = self._db
+      cursor = txn.cursor(db = db)
+    else:
+      txn = self._txn
+      db = self._db
+      cursor = self._cursor
+    #with StorageEngine.Executor(TransactionMode.Writer, self, txn_context = txn_context) as (ctx, txn):
+    if not cursor.last():
+      key = struct.pack('@N', 0)
+    else:
+      key = struct.pack('@N', struct.unpack('@N', cursor.key())[0] + 1)
+    result = txn.put(
+      key, value, append = True, overwrite = False, 
+      db = db
+    )
+    #if txn_context is None:
+    #  txn.commit()
+    #if result:
+    #  ctx.set_changed(True)
+    return result
 
   def put(self, key, value, append = False, replace = True, insert = True, txn_context = None):
     if not insert and not replace:

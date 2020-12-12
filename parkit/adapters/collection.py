@@ -1,3 +1,4 @@
+import enum
 import logging
 
 from parkit.adapters.transaction import EngineContext
@@ -22,16 +23,20 @@ def normalize_install_path(install_path):
       raise InvalidPath()
   return os.path.abspath(install_path)
 
+class CreationMode(enum.Enum):
+  Create = 1
+  Bind = 2
+  CreateOrBind = 3
+
 class Collection():
 
   def __init__(
-    self, name, namespace = None, install_path = None, serialization = None, 
-    versioned = True, integer_keys = False, metadata = None, create = False, 
+    self, name, mode, namespace = None, install_path = None, serialization = None, 
+    versioned = True, integer_keys = False, metadata = None, data = None, 
     **kwargs
   ):
     
     directory = metadata
-    serialization = Serialization() if serialization is None else serialization
     if install_path is None:
       install_path = getenv(INSTALL_PATH_ENVNAME)
     self._install_path = normalize_install_path(install_path)
@@ -47,11 +52,11 @@ class Collection():
       )
     )
 
-    if create:
+    created = False
+    if mode.value == CreationMode.Create.value or (mode.value == CreationMode.CreateOrBind.value and not self._metadata_engine.contains(self._name)):
       metadata = dict() 
       metadata['class'] = get_qualified_class_name(self).replace('Prototype', '')
-      decorators = [serialization] 
-      metadata['decorators'] = [serialize_json_compatible(decorator) for decorator in decorators]
+      #metadata['decorators'] = [serialize_json_compatible(decorator) for decorator in decorators]
       metadata['versioned'] = versioned
       metadata['integer_keys'] = integer_keys
       metadata['directory'] = directory
@@ -59,11 +64,14 @@ class Collection():
         with EngineContext(TransactionMode.Writer, self._metadata_engine) as metadata_engine:
           if not metadata_engine.contains(self._name):
             metadata_engine.put(self._name, metadata)
+            created = True
           else:
-            raise ObjectExists()
+            if mode.value == CreationMode.Create.value:
+              raise ObjectExists()
       else:
-        raise ObjectExists()
-    else:     
+        if mode.value == CreationMode.Create.value:
+          raise ObjectExists()
+    if mode.value == CreationMode.Bind.value or mode.value == CreationMode.CreateOrBind.value:     
       metadata = self._metadata_engine.get(self._name)
       if metadata is None:
         raise ObjectNotFound()
@@ -76,10 +84,14 @@ class Collection():
       versioned = metadata['versioned']
     )
 
-    for decorator in reversed([deserialize_json_compatible(decorator) for decorator in metadata['decorators']]):
-      decorator.set_runtime_kwargs(**kwargs)
-      self.push_decorator(decorator)
-      
+    # for decorator in reversed([deserialize_json_compatible(decorator) for decorator in metadata['decorators']]):
+    #   decorator.set_runtime_kwargs(**kwargs)
+    #   self.push_decorator(decorator)
+    
+    if created and data is not None:
+      for key, value in data.items():
+        self._data_engine.put(key, value)
+
   @property
   def name(self):
     return self._name
@@ -102,7 +114,7 @@ class Collection():
   
   @property
   def metadata(self):
-    return self._metadata_engine.get(self._name)#['directory']
+    return self._metadata_engine.get(self._name)['directory']
 
   @property
   def engine(self):

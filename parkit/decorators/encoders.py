@@ -104,14 +104,16 @@ class Encoder():
 class CompositionEncoder(Encoder):
 
   def __init__(self, encoders):
-    self._to_bytes = compose(*[encoder.to_bytes for encoder in encoders])
-    self._from_bytes = compose(*[encoder.from_bytes for encoder in encoders])
+    self.encode = compose(*[encoder.encode for encoder in encoders])
+    self.decode = compose(*[encoder.encode for encoder in encoders])
+    # self._to_bytes = compose(*[encoder.to_bytes for encoder in encoders])
+    # self._from_bytes = compose(*[encoder.from_bytes for encoder in encoders])
 
-  def to_bytes(self, encodeable):
-    return self._to_bytes(encodeable)
+  # def to_bytes(self, encodeable):
+  #   return self._to_bytes(encodeable)
     
-  def from_bytes(self, encodeable):
-    return self._from_bytes(encodeable)
+  # def from_bytes(self, encodeable):
+  #   return self._from_bytes(encodeable)
 
 class LZMA(Encoder):
 

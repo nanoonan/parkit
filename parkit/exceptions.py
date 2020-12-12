@@ -41,6 +41,9 @@ class ClassMismatch(ParKitException):
 class InvalidArgument(ParKitException):
   pass
 
+class NotAvailable(ParKitException):
+  pass
+
 class InvalidId(ParKitException):
   pass
 
@@ -54,11 +57,11 @@ class InvalidTransactionMode(ParKitException):
   pass
 
 def log(e):
-  if not issubclass(e, SystemException):
+  if not issubclass(type(e), SystemException):
     logger.exception('trapped exception')
   
 def log_and_raise(e, exc_type = None):
-  if not issubclass(e, SystemException):
+  if not issubclass(type(e), SystemException):
     logger.exception('trapped exception')
     if exc_type is None:
       raise SystemException(e)

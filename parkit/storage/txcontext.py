@@ -63,18 +63,19 @@ class TransactionContext():
         self._txn.abort()
         log_and_raise(exc_value)
       else:
-        try:
-          if self._parent is None:
-            for engine, changed in self._changed.items():
-              if changed and engine.versioned:
-                db = engine.environment.get_version_database()
-                result = self._txn.get(engine.encoded_db_name, db = db)
-                version = 0 if result is None else struct.unpack('@N', result)[0]
-                self._txn.put(engine.encoded_db_name, struct.pack('@N', version + 1), db = db)
-          self._txn.commit()
-        except Exception as e:
-          self._txn.abort()
-          log_and_raise(e, TransactionAborted)
+        self._txn.commit()
+        # try:
+        #   if self._parent is None:
+        #     for engine, changed in self._changed.items():
+        #       if changed and engine.versioned:
+        #         db = engine.environment.get_version_database()
+        #         result = self._txn.get(engine.encoded_db_name, db = db)
+        #         version = 0 if result is None else struct.unpack('@N', result)[0]
+        #         self._txn.put(engine.encoded_db_name, struct.pack('@N', version + 1), db = db)
+        #   self._txn.commit()
+        # except Exception as e:
+        #   self._txn.abort()
+        #   log_and_raise(e, TransactionAborted)
     finally:
       self.on_exit()
       
