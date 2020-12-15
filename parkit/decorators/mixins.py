@@ -1,7 +1,5 @@
 import logging
 
-from parkit.storage import TransactionMode
-
 logger = logging.getLogger(__name__)
 
 class DefaultSetRuntimeArgs():
@@ -11,69 +9,79 @@ class DefaultSetRuntimeArgs():
 
 class DefaultClear():
 
-  def clear(self, txn_context = None):
-    return self._engine.clear(txn_context = txn_context)
+  def clear(self):
+    return self._engine.clear()
 
 class DefaultDrop():
 
-  def drop(self, txn_context = None):
-    return self._engine.drop(txn_context = txn_context)
+  def drop(self):
+    return self._engine.drop()
 
 class DefaultDelete():
   
-  def delete(self, key, txn_context = None):
-    return self._engine.delete(key, txn_context = txn_context)
+  def delete(self, key = None, first = True):
+    return self._engine.delete(key)
 
 class DefaultContains():
   
-  def contains(self, key, txn_context = None):
-    return self._engine.contains(key, txn_context = txn_context)
+  def contains(self, key):
+    return self._engine.contains(key)
 
 class DefaultPut():
   
-  def put(self, key, value, append = False, replace = True, insert = True, txn_context = None):
+  def put(self, key, value, replace = True, insert = True):
     return self._engine.put(
-      key, value, append = append, replace = replace, insert = insert,
+      key, value, replace = replace, insert = insert,
       txn_context = txn_context
     )
 
 class DefaultAppend():
   
-  def put(self, value, txn_context = None):
+  def put(self, value, key = None):
     return self._engine.append(
-      value, txn_context = txn_context
+      value, key = key
     )
 
 class DefaultGet():
   
-  def get(self, key, txn_context = None):
-    return self._engine.get(key, txn_context = txn_context)
+  def get(self, key = None, first = True, default = None):
+    return self._engine.get(key = key, first = first, default = default)
 
-class DefaultVersion():
+class DefaultGetVersion():
   
-  def version(self, txn_context = None):
-    return self._engine.version(txn_context = txn_context)
+  def get_version(self):
+    return self._engine.get_version()
+
+class DefaultGetMetadata():
+  
+  def get_metadata(self):
+    return self._engine.get_metadata()
+
+class DefaultPutMetadata():
+  
+  def put_metadata(self, item):
+    return self._engine.put_metadata(item)
 
 class DefaultPop():
   
-  def pop(self, key, txn_context = None):
-    return self._engine.pop(key, txn_context = txn_context)
+  def pop(self, key = None, first = True, default = None):
+    return self._engine.pop(key = key, first = first, default = default)
 
 class DefaultSize():
   
-  def size(self, txn_context = None):
-    return self._engine.size(txn_context = txn_context)
+  def size(self):
+    return self._engine.size()
 
 class DefaultKeys():
   
-  def keys(self, txn_context = None):
-    return self._engine.keys(txn_context = txn_context)
+  def keys(self):
+    return self._engine.keys()
 
 class DefaultPutMany():
   
-  def put_many(self, items, append = False, replace = True, insert = True, txn_context = None):
+  def put_many(self, items, replace = True, insert = True):
     return self._engine.put_many(
-      items, append = append, replace = replace, insert = insert,
+      items, replace = replace, insert = insert,
       txn_context = txn_context
     )
 
@@ -88,6 +96,6 @@ class Decorator():
     return self._engine
 
   @property
-  def base_engine(self):
-    return self._base_engine
+  def storage_engine(self):
+    return self._storage_engine
   

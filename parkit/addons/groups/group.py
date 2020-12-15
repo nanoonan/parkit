@@ -22,10 +22,10 @@ logger = logging.getLogger(__name__)
 
 class GroupPrototype(Collection):  
 
-  def __init__(self, name, mode, namespace, install_path, encoders, versioned, metadata, data, **kwargs):      
+  def __init__(self, name, mode, namespace, repository, encoders, versioned, metadata, data, **kwargs):      
     
     super().__init__(
-      name, mode, namespace = namespace, install_path = install_path, 
+      name, mode, namespace = namespace, repository = repository, 
       serialization = Serialization(*encoders), versioned = versioned, 
       integer_keys = False, metadata = metadata, data = data, 
       **kwargs
@@ -44,13 +44,13 @@ class GroupPrototype(Collection):
   def size(self):
     return self.engine.size()
 
-  def create(self, clock):
-    if not issubclass(type(clock), Clock):
-      raise InvalidArgument()
+  # def create(self, clock):
+  #   if not issubclass(type(clock), Clock):
+  #     raise InvalidArgument()
 
-  def terminate(self, instance):
-    if not issubclass(type(clock), ClockInstance):
-      raise InvalidArgument()
+  # def terminate(self, instance):
+  #   if not issubclass(type(clock), ClockInstance):
+  #     raise InvalidArgument()
 
   def instances(self):
     return self.engine.keys()
@@ -83,14 +83,14 @@ class Group(GroupPrototype):
 
   @staticmethod
   def create_or_bind(
-    name, namespace = None, install_path = None, encoders = [Pickle()], 
+    name, namespace = None, repository = None, encoders = [Pickle()], 
     versioned = True, metadata = None, **kwargs
   ):
     if not Group.initialized:
       raise NotAvailable()
     return GroupPrototype(
       name, CreationMode.Create,
-      namespace, install_path, 
+      namespace, repository, 
       encoders, versioned, 
       metadata, None,
       **kwargs
@@ -98,24 +98,24 @@ class Group(GroupPrototype):
 
   @staticmethod
   def create(
-    name, namespace = None, install_path = None, encoders = [Pickle()], 
+    name, namespace = None, repository = None, encoders = [Pickle()], 
     versioned = True, metadata = None, **kwargs
   ):
     if not Group.initialized:
       raise NotAvailable()
     return GroupPrototype(
       name, CreationMode.Create,
-      namespace, install_path, 
+      namespace, repository, 
       encoders, versioned, 
       metadata, None,
       **kwargs
     )
 
-  def __init__(self, name, namespace = None, install_path = None, **kwargs):
+  def __init__(self, name, namespace = None, repository = None, **kwargs):
     if not Group.initialized:
       raise NotAvailable()
     Collection.__init__(
       self, name, CreationMode.Bind,
-      namespace = namespace, install_path = install_path, 
+      namespace = namespace, repository = repository, 
       **kwargs
     )

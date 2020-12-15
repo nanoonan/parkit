@@ -2,25 +2,25 @@ import logging
 import os
 import uuid
 
-from parkit.addons.groups import Group
+#from parkit.addons.groups import Group
 from parkit.constants import *
 from parkit.exceptions import *
 from parkit.utility import *
 
 logger = logging.getLogger(__name__)
 
-def init(install_path = None, groups = False, profile = 'default'):
+def init(repository = None, groups = False, profile = 'default'):
   try:
-    if install_path is None:
-      install_path = os.getenv(INSTALL_PATH_ENVNAME)
-      if install_path is None:
+    if repository is None:
+      repository = os.getenv(REPOSITORY_ENVNAME)
+      if repository is None:
         raise InvalidEnvironment()
-    install_path = os.path.abspath(install_path)
-    if os.path.exists(install_path):
-      if not os.path.isdir(install_path):
+    repository = os.path.abspath(repository)
+    if os.path.exists(repository):
+      if not os.path.isdir(repository):
         raise InvalidPath()
     try:
-      os.makedirs(install_path)
+      os.makedirs(repository)
     except FileExistsError:
       pass
     if profile is None:
@@ -34,13 +34,13 @@ def init(install_path = None, groups = False, profile = 'default'):
       else:
         checkenv(name, type(default))
     if not envexists(INSTALLATION_UUID_ENVNAME):
-      setenv(INSTALLATION_UUID_ENVNAME, create_string_digest(install_path))
-    if not envexists(INSTALL_PATH_ENVNAME):
-      setenv(INSTALL_PATH_ENVNAME, install_path)
+      setenv(INSTALLATION_UUID_ENVNAME, create_string_digest(repository))
+    if not envexists(REPOSITORY_ENVNAME):
+      setenv(REPOSITORY_ENVNAME, repository)
     if not envexists(PROCESS_INSTANCE_UUID_ENVNAME):
       setenv(PROCESS_INSTANCE_UUID_ENVNAME, str(uuid.uuid4()))
-    if groups:
-      Group.init()
+    #if groups:
+    #  Group.init()
   except Exception as e:
     log_and_raise(e)
 

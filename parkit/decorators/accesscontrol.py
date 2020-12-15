@@ -13,6 +13,8 @@ class AccessPermission(enum.Enum):
   AllowReplace = 3
   AllowDelete = 4
   AllowDrop = 5
+  AllowMetadataRead = 6
+  AllowMetadataReplace = 7
 
 class AccessControl():
 
@@ -41,74 +43,82 @@ class AccessPolicyDecorator(Decorator):
   def permissions(self):
     return self._permissions
     
-  def clear(self, txn_context = None):
+  def clear(self):
     if len(self._permissions) and AccessPermission.AllowDelete.value not in self._permissions:
       return None
-    return self.engine.clear(txn_context = txn_context)
+    return self.engine.clear()
 
-  def drop(self, txn_context = None):
+  def drop(self):
     if len(self._permissions) and AccessPermission.AllowDrop.value not in self._permissions:
       return None
-    return self.engine.drop(txn_context = txn_context)
+    return self.engine.drop()
 
-  def version(self, txn_context = None):
+  def get_version(self):
+    if len(self._permissions) and AccessPermission.AllowMetadataRead.value not in self._permissions:
+      return None
+    return self.engine.get_version()
+
+  def get_metadata(self):
+    if len(self._permissions) and AccessPermission.AllowMetadataRead.value not in self._permissions:
+      return None
+    return self.engine.get_metadata()
+
+  def put_metadata(self, item):
+    if len(self._permissions) and AccessPermission.AllowMetadataReplace.value not in self._permissions:
+      return None
+    return self.engine.put_metadata(item)
+
+  def size(self):
     if len(self._permissions) and AccessPermission.AllowRead.value not in self._permissions:
       return None
-    return self.engine.version(txn_context = txn_context)
+    return self.engine.size()
 
-  def size(self, txn_context = None):
+  def keys(self):
     if len(self._permissions) and AccessPermission.AllowRead.value not in self._permissions:
       return None
-    return self.engine.size(txn_context = txn_context)
+    return self.engine.keys()
 
-  def keys(self, txn_context = None):
+  def get(self, key = None, first = True, default = None):
     if len(self._permissions) and AccessPermission.AllowRead.value not in self._permissions:
       return None
-    return self.engine.keys(txn_context = txn_context)
+    return self.engine.get(key = key, first = first, default = default)
 
-  def get(self, key, txn_context = None):
-    if len(self._permissions) and AccessPermission.AllowRead.value not in self._permissions:
-      return None
-    return self.engine.get(key, txn_context = txn_context)
-
-  def contains(self, key, txn_context = None):
+  def contains(self, key):
     if len(self._permissions) and AccessPermission.AllowRead.value not in self._permissions:
       return False
-    return self.engine.contains(key, txn_context = txn_context)
+    return self.engine.contains(key)
 
-  def delete(self, key, txn_context = None):
+  def delete(self, key = None, first = True):
     if len(self._permissions) and AccessPermission.AllowDelete.value not in self._permissions:
       return False
-    return self.engine.delete(key, txn_context = txn_context)
+    return self.engine.delete(key = key, first = first)
 
-  def pop(self, key, txn_context = None):
+  def pop(self, key = None, first = True, default = None):
     if len(self._permissions) and AccessPermission.AllowDelete.value not in self._permissions or AccessPermission.AllowRead.value not in self._permissions:
       return None
-    return self.engine.pop(key, txn_context = txn_context)
+    return self.engine.pop(key = key, first = first, default = default)
 
-  def put(self, key, value, append = False, replace = True, insert = True, txn_context = None):
+  def put(self, key, value, replace = True, insert = True):
     if len(self._permissions) and AccessPermission.AllowInsert.value not in self._permissions and AccessPermission.AllowReplace.value not in self._permissions:
       return False
     insert = True if len(self._permissions) == 0 or AccessPermission.AllowInsert.value in self._permissions else False
     replace = True if len(self._permissions) == 0 or AccessPermission.AllowReplace.value in self._permissions else False
     return self.engine.put(
-      key, value, append = append, replace = replace, insert = insert,
-      txn_context = txn_context
+      key, value, replace = replace, insert = insert
     )
       
-  def append(self, value, txn_context = None):
+  def append(self, value, key = None):
     if len(self._permissions) and AccessPermission.AllowInsert.value not in self._permissions:
       return False
     return self.engine.append(
-      value, txn_context = txn_context
+      value, key = key
     )
 
-  def put_many(self, items, append = False, replace = True, insert = True, txn_context = None):
+  def put_many(self, items, replace = True, insert = True):
     if len(self._permissions) and AccessPermission.AllowInsert.value not in self._permissions and AccessPermission.AllowReplace.value not in self._permissions:
       return False
     insert = True if len(self._permissions) == 0 or AccessPermission.AllowInsert.value in self._permissions else False
     replace = True if len(self._permissions) == 0 or AccessPermission.AllowReplace.value in self._permissions else False 
     return self.engine.put_many(
-      items, append = append, replace = replace, insert = insert,
-      txn_context = txn_context
+      items, replace = replace, insert = insert
     )

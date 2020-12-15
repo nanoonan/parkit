@@ -1,7 +1,7 @@
 
 class Directory():
 
-	def __init__(self, namespace, install_path):
+	def __init__(self, namespace, repository):
 		pass
 
 	@staticmethod
@@ -9,7 +9,7 @@ class Directory():
 		pass
 
 	@property
-	def install_path():
+	def repository():
 		pass
 
 	@property

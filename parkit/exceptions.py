@@ -20,16 +20,7 @@ class TransactionAborted(SystemException):
 class InvalidPath(ParKitException):
   pass
 
-class NotSerializableError(ParKitException):
-  pass
-
-class InvalidKey(ParKitException):
-  pass
-
-class InvalidOperation(ParKitException):
-  pass
-
-class ObjectExists(ParKitException):
+class ObjectDropped(ParKitException):
   pass
 
 class ObjectNotFound(ParKitException):
@@ -38,22 +29,13 @@ class ObjectNotFound(ParKitException):
 class ClassMismatch(ParKitException):
   pass
 
-class InvalidArgument(ParKitException):
-  pass
-
 class NotAvailable(ParKitException):
   pass
 
-class InvalidId(ParKitException):
+class InvalidIdentifier(ParKitException):
   pass
 
-class InvalidContext(ParKitException):
-  pass
-
-class InvalidEnvironment(ParKitException):
-  pass
-
-class InvalidTransactionMode(ParKitException):
+class MissingEnvironment(ParKitException):
   pass
 
 def log(e):

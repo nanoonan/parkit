@@ -34,7 +34,7 @@ def create_pid_filepath(node_uid, cluster_id):
   
 # def stop_cluster(settings = None):
 #   try:
-#     cluster_id = create_string_digest(getenv(INSTALL_PATH_ENVNAME))
+#     cluster_id = create_string_digest(getenv(repository_ENVNAME))
 #     running_processes = scan_processes(cluster_id, settings)
 #     for (node_uid, _) in running_processes:
 #       if platform.system() == 'Windows':
@@ -50,7 +50,7 @@ def start_cluster(settings):
   processes = Dict.create_or_bind(PROCESSES_NAME, namespace = GROUPS_NAMESPACE) 
   with WriteTransaction(processes) as processes:
     if 'monitor' not in processes:
-      cluster_id = create_string_digest(getenv(INSTALL_PATH_ENVNAME))
+      cluster_id = create_string_digest(getenv(repository_ENVNAME))
       running_processes = scan_processes(cluster_id, settings)
       if len([node_uid for (node_uid, cmdline) in running_processes if 'monitordaemon' in cmdline[1]]) == 0:
         launch_node('monitor-{0}'.format(str(uuid.uuid4())), 'parkit.addons.groups.monitordaemon', cluster_id)

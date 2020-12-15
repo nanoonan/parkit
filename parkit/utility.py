@@ -1,5 +1,6 @@
 import importlib
 import inspect
+import json
 import logging
 import mmh3
 import os
@@ -10,23 +11,43 @@ import time
 from parkit.constants import *
 from parkit.exceptions import *
 
-from functools import (
-  lru_cache,
-  reduce
-)
+from functools import lru_cache
 
 logger = logging.getLogger(__name__)
 
-def serialize_json_compatible(obj):
-  return (get_qualified_class_name(obj), obj.__getstate__())
+def deserialize_json_compatible(attrs):
+  cls = create_class(attrs['__parkit_class__'])
+  instance = cls.__new__(cls)
+  instance.__setstate__(attrs)
+  return instance
 
-def deserialize_json_compatible(value):
-  obj = create_class(value[0])()
-  obj.__setstate__(value[1])
-  return obj
+class Decoder(json.JSONDecoder):
+  
+  def __init__(self):
+    json.JSONDecoder.__init__(self, object_hook = self.dict_to_object)
+    
+  def dict_to_object(self, attrs):
+    if '_qualified_class_name' in attrs:
+      cls = create_class(attrs['_qualified_class_name'])
+      instance = cls.__new__(cls)
+      instance.__setstate__(attrs)
+      return instance
+    else:
+      return attrs
 
-def compose(*functions):
-    return reduce(lambda f, g: lambda x: f(g(x)), functions, lambda x: x)
+class Encoder(json.JSONEncoder):
+  
+  def default(self, obj):
+    if hasattr(type(obj), '__json__'):
+      return obj.__getstate__()
+    else:
+      return json.JSONEncoder.default(self, obj)
+  
+def json_dumps(obj):
+  return json.dumps(obj, cls = Encoder)
+
+def json_loads(obj):
+  return json.loads(obj, cls = Decoder)
 
 def create_class(qualified_name):
   try:
@@ -43,7 +64,7 @@ def get_qualified_class_name(obj):
 def getenv(name):
   value = os.getenv(str(name))
   if value is None:
-    raise InvalidEnvironment()
+    raise MissingEnvironment()
   else:
     return value
   
@@ -51,11 +72,11 @@ def checkenv(name, type):
   try:
     if type == bool:
       if not getenv(name).upper() == 'FALSE' and not getenv(name).upper() == 'TRUE':
-        raise InvalidEnvironment()
+        raise MissingEnvironment()
     else:
       type(getenv(name))
   except Exception:
-    raise InvalidEnvironment()
+    raise MissingEnvironment()
 
 def envexists(name):
   return os.getenv(str(name)) is not None
@@ -65,25 +86,18 @@ def setenv(name, value):
 
 def create_id(obj):
   if obj is None:
-    raise InvalidId()
+    raise InvalidIdentifier()
   id = str(obj)
+  if id.startswith('__') and id.endswith('__'):
+    raise InvalidIdentifier()
   if id.isascii() and id.replace('_', '').replace('-', '').isalnum():
     return id
   else:
-    raise InvalidId()
+    raise InvalidIdentifier()
   
 def create_string_digest(*segments):
   return str(mmh3.hash128(''.join([str(segment) for segment in segments]), MMH3_SEED, True, signed = False))
     
-def testgen(x):
-  txn = x.engine.environment._env.begin(
-    db = None, write = True, 
-    parent = None, buffers = True
-  )
-  x.engine.set_context(txn)
-  yield x
-  x.engine.clear_context()
-
 def polling_loop(interval, max_iterations = None, initial_offset = None):
   iteration = 0
   try:

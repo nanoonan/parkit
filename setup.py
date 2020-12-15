@@ -17,6 +17,7 @@ setup(
     'numpy',
     'lmdb',
     'daemoniker',
-    'psutil'
+    'psutil',
+    'orjson'
   ],
 )
