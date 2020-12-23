@@ -1,57 +1,52 @@
 import logging
+import os
 
 logger = logging.getLogger(__name__)
 
-class ParKitException(Exception):
-  pass
+class SystemError(RuntimeError):
 
-class SystemException(ParKitException):
-
-  def __init__(self, e):
-    self._exception = e
+  def __init__(self, obj = None):
+    if isinstance(obj, str):
+      super().__init__(obj)
+    elif issubclass(type(obj), BaseException):
+      self._wrapped = obj
 
   @property
-  def exception(self):
-    return self._exception
+  def caught(self):
+    return self._wrapped
 
-class TransactionAborted(SystemException):
+class TransactionError(SystemError):  
   pass
 
-class InvalidPath(ParKitException):
+class ObjectExistsError(TransactionError):
   pass
 
-class ObjectDropped(ParKitException):
-  pass
-
-class ObjectNotFound(ParKitException):
+class ObjectNotFoundError(TransactionError):
   pass
   
-class ClassMismatch(ParKitException):
-  pass
-
-class NotAvailable(ParKitException):
-  pass
-
-class InvalidIdentifier(ParKitException):
-  pass
-
-class MissingEnvironment(ParKitException):
-  pass
-
-def log(e):
-  if not issubclass(type(e), SystemException):
-    logger.exception('trapped exception')
-  
-def log_and_raise(e, exc_type = None):
-  if not issubclass(type(e), SystemException):
-    logger.exception('trapped exception')
-    if exc_type is None:
-      raise SystemException(e)
+def abort(exc_value):
+  if exc_value:
+    if not issubclass(type(exc_value), TransactionError):
+      log_and_raise(exc_value, TransactionError)
     else:
-      raise exc_type(e)
+      raise exc_value
   else:
-    if exc_type is None:
-      raise e
-    else:
-      raise exc_type(e)
+    raise TransactionError()
 
+def log(exc_value):
+  if not issubclass(type(exc_value), SystemError):
+    if not isinstance(exc_value, SystemExit) and not isinstance(exc_value, KeyboardInterrupt) and not isinstance(exc_value, GeneratorExit):
+      logger.exception('Trapped error')
+  
+def log_and_raise(exc_value, exc_type = None):
+  if not issubclass(type(exc_value), SystemError):
+    if isinstance(exc_value, SystemExit) or isinstance(exc_value, KeyboardInterrupt) or isinstance(exc_value, GeneratorExit):
+      raise exc_value
+    logger.exception('Trapped error on pid {0}'.format(os.getpid()))
+    if exc_type is None:
+      raise SystemError(exc_value)
+    else:
+      raise exc_type(exc_value)
+  else:
+    raise exc_value
+    

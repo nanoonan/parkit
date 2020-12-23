@@ -62,7 +62,7 @@ class List_(Collection):
   def append(self, item):
     self.engine.append(item)
 
-class List():
+class []:
 
   def __new__(cls, *args, **kwargs):
     return List.create_or_bind(*args, **kwargs)

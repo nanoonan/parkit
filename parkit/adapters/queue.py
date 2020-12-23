@@ -1,67 +1,67 @@
 import logging
 import struct
 
-from parkit.adapters.collection import (
-  Collection,
-  CreationMode
+from parkit.adapters.collection import Collection
+from parkit.adapters.encoders import Pickle
+from parkit.adapters.mixins import (
+  generic_queue_get,
+  generic_queue_put,
+  generic_size
 )
 from parkit.constants import *
 from parkit.exceptions import *
-from parkit.storage import (
-  Pickle,
-  Pipeline
-)
 from parkit.utility import *
+from parkit.storage import context
 
 logger = logging.getLogger(__name__)
 
-class NotFound():
-  pass
+class Queue(Collection):  
 
-class Queue_(Collection):  
-
-  def __init__(self, name, mode, namespace, repository, pipeline, initial_metadata, **kwargs):      
+  def __init__(
+    self, name, namespace = None, repository = None, create = False, bind = True, 
+    encoders = [Pickle], initial_metadata = None, initializer = None
+  ):      
     
-    super().__init__(
-      name, mode, namespace = namespace, repository = repository, 
-      integer_keys = True, duplicates = False,
-      pipeline = pipeline, initial_metadata = initial_metadata, initial_data = None, 
-      **kwargs
+    super().__init__(name, namespace = namespace, repository = repository)
+
+    self._mixin_methods()
+
+    kwargs = dict(
+      request_databases = [dict(integer_keys = True, duplicates = False)],
+      request_versioned = False, 
+      create = create, 
+      bind = bind,
+      encoders = encoders, 
+      initial_metadata = initial_metadata
     )
 
-  def __len__(self):
-    return self.engine.size() 
+    self._pre_create_or_bind(kwargs)
 
-  def qsize(self):
-    return self.engine.size() 
+    with context(self, write = create, inherit = True) as txn:  
+      self._create_or_bind(txn, kwargs)
+      if initializer is not None:
+        initializer()
+
+  def _mixin_methods(self):
+    if not hasattr(Queue, '__len__'):
+      setattr(Queue, '__len__', generic_size(self))
+    self.qsize = generic_size(self)
+    self.get = generic_queue_get(self, fifo = True)
+    self.put = generic_queue_put(self)
+
+  def __getstate__(self):
+    to_wire = super().__getstate__()
+    del to_wire['qsize']
+    del to_wire['get']
+    del to_wire['put']
+    return to_wire
+
+  def __setstate__(self, from_wire):
+    super().__setstate__(from_wire)
+    self._mixin_methods()
 
   def empty(self):
     return self.qsize() == 0
 
-  def get(self, block = True, timeout = None):
-    result = self.engine.pop(key = None, first = True, default = NotFound())
-    if isinstance(result, NotFound):
-      raise Empty()
-    else:
-      return result
-    
-  def put(self, item):
-    return self.engine.append(item) 
-
-class Queue():
-
-  def __new__(cls, *args, **kwargs):
-    return Queue.create_or_bind(*args, **kwargs)
-    
-  @staticmethod
-  def create_or_bind(
-    name, namespace = None, repository = None,  
-    pipeline = Pipeline(Pickle()), 
-    initial_metadata = None, **kwargs
-  ):
-    pipeline.encode_keys = False
-    return Queue_(
-      name, CreationMode.CreateOrBind, namespace = namespace, repository = repository, 
-      pipeline = pipeline, initial_metadata = initial_metadata, 
-      **kwargs
-    )
+  
+      

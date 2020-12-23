@@ -35,7 +35,7 @@ class GroupPrototype(Collection):
     #   self._queue = Queue.create(
     #     MONITOR_QUEUE_NAME, namespace = GROUPS_NAMESPACE
     #   ) 
-    # except ObjectExists:
+    # except ObjectExistsError:
     #   self._queue = Queue(MONITOR_QUEUE_NAME, namespace = GROUPS_NAMESPACE)
     
   def __len__(self):

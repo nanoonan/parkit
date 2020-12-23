@@ -93,7 +93,7 @@ if __name__ == '__main__':
     #     with Lock('__monitor_lock__', mode = LockMode.Writer):
     #       running_processes = scan_processes()
     #       running_task_nodes = [(node_uid, cmdline) for (node_uid, cmdline) in running_processes if 'monitordaemon' not in cmdline[1]]
-    #       task_nodes = dict()
+    #       task_nodes = {}
     #       for (node_uid, cmdline) in running_task_nodes:
     #         task_nodes[int(node_uid.split('-')[0])] = node_uid
     #       for node_id in range(n_task_nodes):

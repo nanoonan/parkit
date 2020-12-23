@@ -67,7 +67,7 @@ if __name__ == '__main__':
   finally:
     sys.exit(1)
     
-    # task_threads = dict()
+    # task_threads = {}
 
     # scheduler = schedule.Scheduler()
 

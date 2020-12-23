@@ -1,8 +1,8 @@
+import distutils.util
 import importlib
 import inspect
-import json
 import logging
-import mmh3
+import hashlib
 import os
 import re
 import tempfile
@@ -15,68 +15,48 @@ from functools import lru_cache
 
 logger = logging.getLogger(__name__)
 
-def deserialize_json_compatible(attrs):
-  cls = create_class(attrs['__parkit_class__'])
-  instance = cls.__new__(cls)
-  instance.__setstate__(attrs)
-  return instance
-
-class Decoder(json.JSONDecoder):
-  
-  def __init__(self):
-    json.JSONDecoder.__init__(self, object_hook = self.dict_to_object)
-    
-  def dict_to_object(self, attrs):
-    if '_qualified_class_name' in attrs:
-      cls = create_class(attrs['_qualified_class_name'])
-      instance = cls.__new__(cls)
-      instance.__setstate__(attrs)
-      return instance
-    else:
-      return attrs
-
-class Encoder(json.JSONEncoder):
-  
-  def default(self, obj):
-    if hasattr(type(obj), '__json__'):
-      return obj.__getstate__()
-    else:
-      return json.JSONEncoder.default(self, obj)
-  
-def json_dumps(obj):
-  return json.dumps(obj, cls = Encoder)
-
-def json_loads(obj):
-  return json.loads(obj, cls = Decoder)
-
-def create_class(qualified_name):
+@lru_cache(None)
+def create_class(qualified_class_name):
   try:
-    module_path, class_name = qualified_name.rsplit('.', 1)
+    module_path, class_name = qualified_class_name.rsplit('.', 1)
     module = importlib.import_module(module_path)
     return getattr(module, class_name)
   except (ImportError, AttributeError) as e:
     log_and_raise(e)
 
 def get_qualified_class_name(obj):
-  return obj.__class__.__module__ + '.' + obj.__class__.__name__
+  if type(obj) == type:
+    return obj.__module__ + '.' + obj.__name__
+  else:
+    return obj.__class__.__module__ + '.' + obj.__class__.__name__
 
 @lru_cache(None)
-def getenv(name):
-  value = os.getenv(str(name))
+def getenv(name, type = None):
+  name = str(name)
+  value = os.getenv(name)
   if value is None:
-    raise MissingEnvironment()
+    raise ValueError('Environment variable {0} not found in environment'.format(name))
   else:
-    return value
-  
+    if type is None or type is str:
+      return value
+    else:
+      if type == bool:
+        return bool(distutils.util.strtobool(value))
+      elif type == int:
+        return type(value)
+      else:
+        raise TypeError()
+
 def checkenv(name, type):
   try:
     if type == bool:
       if not getenv(name).upper() == 'FALSE' and not getenv(name).upper() == 'TRUE':
-        raise MissingEnvironment()
+        raise TypeError('Environment variable {0} has wrong type'.format(name))
     else:
       type(getenv(name))
+      return True
   except Exception:
-    raise MissingEnvironment()
+    raise TypeError('Environment variable has {0} wrong type'.format(name))
 
 def envexists(name):
   return os.getenv(str(name)) is not None
@@ -84,20 +64,27 @@ def envexists(name):
 def setenv(name, value):
   os.environ[str(name)] = str(value)
 
-def create_id(obj):
-  if obj is None:
-    raise InvalidIdentifier()
-  id = str(obj)
-  if id.startswith('__') and id.endswith('__'):
-    raise InvalidIdentifier()
-  if id.isascii() and id.replace('_', '').replace('-', '').isalnum():
-    return id
+@lru_cache(None)
+def resolve(obj: str, path: bool = True):
+  if path and not obj:
+    raise ValueError('None is not a valid path')
+  elif not obj:
+    return obj
+  obj = [segment for segment in obj.split('/') if len(segment)]
+  if not path:
+    if all([segment.isascii() and segment.replace('_', '').replace('-', '').isalnum() for segment in obj]):
+      return '/'.join(obj) if len(obj) else None
+    else:
+      raise ValueError('Namespace does not follow naming rules')
   else:
-    raise InvalidIdentifier()
+    if len(obj) and all([segment.isascii() and segment.replace('_', '').replace('-', '').isalnum() for segment in obj]):
+      return (obj[0], None) if len(obj) == 1 else (obj[-1], '/'.join(obj[0:-1]))
+    else:
+      raise ValueError('Path does not follow naming rules')
   
 def create_string_digest(*segments):
-  return str(mmh3.hash128(''.join([str(segment) for segment in segments]), MMH3_SEED, True, signed = False))
-    
+  return hashlib.sha1(''.join([str(segment) for segment in segments]).encode('utf-8')).hexdigest()
+  
 def polling_loop(interval, max_iterations = None, initial_offset = None):
   iteration = 0
   try:
