@@ -1,64 +1,110 @@
-import cloudpickle
+# pylint: disable = dangerous-default-value
 import logging
+
+from typing import (
+    Any, Callable, Dict, Optional, Tuple
+)
+
+import cloudpickle
+import psutil
+
 import parkit.constants as constants
 
-from parkit.adapters.attribute import Attr
-from parkit.adapters.object import Object
+from parkit.adapters.attributes import (
+    Attr,
+    Attributes
+)
+from parkit.adapters.metadata import Metadata
+from parkit.adapters.queue import Queue
+from parkit.pool import terminate_node
+from parkit.storage import (
+    LMDBObject,
+    snapshot,
+    transaction
+)
+from parkit.utility import (
+    create_string_digest,
+    getenv,
+    resolve
+)
 
 logger = logging.getLogger(__name__)
 
-class ProcessProxy(Object):
-  
-  process = Attr()
+ATTRS_INDEX = 0
 
-class Process(Object):  
+class Process(LMDBObject, Attributes, Metadata):
 
-  pid = Attr(readonly = True)
+    pid = Attr(readonly = True)
+    error = Attr(readonly = True)
+    node_uid = Attr(readonly = True)
+    result = Attr(readonly = True)
+    target = Attr(readonly = True)
+    args = Attr(readonly = True)
+    kwargs = Attr(readonly = True)
 
-  status = Attr(readonly = True)
-  
-  error = Attr(readonly = True)
-  
-  node_uid = Attr(readonly = True)
-  
-  result = Attr(readonly = True)
+    def __init__(
+        self, path: str, create: bool = True, bind: bool = True, versioned: bool = False,
+        target: Optional[Callable[..., Any]] = None,
+        args: Tuple[Any, ...] = (),
+        kwargs: Dict[str, Any] = {}
+    ) -> None:
+        name, namespace = resolve(path, path = True)
 
-  def __init__(
-    self, path, create = True, bind = True, versioned = False, 
-    target = None, args = (), kwargs = {}
-  ): 
-    
-    def on_create(metadata):
-      self._put_attr('_pid', None)
-      self._put_attr('_result', None)
-      self._put_attr('_error', None)
-      self._put_attr('_target', target)
-      self._put_attr('_args', args)
-      self._put_attr('_kwargs', kwargs)
-      self._put_attr('_status', ['submitted'])
-      self._put_attr('_node_uid', None)
-      proxy = ProcessProxy(
-        '/'.join([PROCESS_NAMESPACE, self.uuid]), create = True, bind = False,
-        versioned = False
-      )
-      proxy.process = self
+        def on_create() -> None:
+            self._put_attribute('_pid', None)
+            self._put_attribute('_result', None)
+            self._put_attribute('_error', None)
+            self._put_attribute('_target', target)
+            self._put_attribute('_args', args)
+            self._put_attribute('_kwargs', kwargs)
+            self._put_attribute('_status', 'submitted')
+            self._put_attribute('_node_uid', None)
+            queue = Queue(constants.PROCESS_QUEUE_PATH)
+            queue.put(self)
 
-    super().__init__(
-      path, create = create, bind = bind, versioned = versioned, on_create = on_create
-    )
-      
-  def drop(self):
-    with context(self, write = True, inherit = True):
-      super().drop()
-      proxy = ProcessProxy(
-        '/'.join([PROCESS_NAMESPACE, self.uuid]), create = False, bind = True
-      )
-      proxy.drop()
+        if namespace and namespace.startswith(constants.PROCESS_NAMESPACE) and '/' in namespace:
+            if namespace.startswith(''.join([constants.PROCESS_NAMESPACE, '/'])):
+                name = '/'.join([namespace[len(constants.PROCESS_NAMESPACE) + 1:], name])
+            else:
+                name = '/'.join([namespace, name])
+        elif namespace and not namespace.startswith(constants.PROCESS_NAMESPACE):
+            name = '/'.join([namespace, name])
 
-  def attr_encode_value(self, value):
-    return cloudpickle.dumps(value)
+        LMDBObject.__init__(
+            self, name, properties = [{}], namespace = constants.PROCESS_NAMESPACE,
+            create = create, bind = bind, versioned = versioned, on_create = on_create
+        )
+        Attributes.__init__(
+            self,
+            encode_value = cloudpickle.loads,
+            decode_value = cloudpickle.dumps
+        )
+        Metadata.__init__(self)
 
-  def attr_decode_value(self, value):
-    return cloudpickle.loads(value)
+    @property
+    def status(self) -> str:
+        with snapshot(self):
+            status = self._get_attribute('_status')
+            if status != 'running':
+                return status
+            pid = self._get_attribute('_pid')
+            if psutil.pid_exists(pid):
+                proc = psutil.Process(pid)
+                cmdline = proc.cmdline()
+                if self._get_attribute('_node_uid') in cmdline:
+                    return 'running'
+            return 'crashed'
 
-  
+    def _bind(self, *_: Any) -> None:
+        Attributes._bind(self, ATTRS_INDEX)
+        Metadata._bind(self)
+
+    def drop(self) -> None:
+        with transaction(self):
+            try:
+                if self.node_uid:
+                    cluster_uid = create_string_digest(getenv(constants.INSTALL_PATH_ENVNAME))
+                    terminate_node(self.node_uid, cluster_uid)
+            except FileNotFoundError:
+                pass
+            super().drop()

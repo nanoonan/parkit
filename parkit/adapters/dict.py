@@ -1,129 +1,178 @@
-import collections.abc
 import logging
+import pickle
+import types
 
-from parkit.storage import (
-  Database,
-  generic_dict_contains,
-  generic_dict_get,
-  generic_dict_delete,
-  generic_dict_iter,
-  generic_dict_put,
-  generic_size,
-  generic_clear,
-  generic_dict_pop,
-  generic_dict_popitem,
-  generic_dict_setdefault,
-  generic_dict_update,
-  LMDBObject
+from typing import (
+    Any, ByteString, Callable, cast, Iterator, Tuple
 )
 
-try:
-  from cPickle import dumps, loads, HIGHEST_PROTOCOL as PICKLE_PROTOCOL
-except ImportError:
-  from pickle import dumps, loads, HIGHEST_PROTOCOL as PICKLE_PROTOCOL
+import parkit.storage.mixins as mixins
+
+from parkit.adapters.metadata import Metadata
+from parkit.adapters.missing import Missing
+from parkit.storage import LMDBObject
+from parkit.utility import resolve
 
 logger = logging.getLogger(__name__)
 
-class Dict(LMDBObject, collections.abc.MutableMapping):  
+DICT_INDEX = 0
 
-  def __init__(
-    self, path, create = True, bind = True, versioned = False,
-    on_create = lambda: None
-  ):
-    super().__init__(
-      path, create = create, bind = bind, versioned = versioned, 
-      on_create = on_create, databases = [{}, {}]
-    )
+class Dict(LMDBObject, Metadata):
 
-  def __iter__(self):
-    return self.keys()
+    def __init__(
+        self,
+        path: str,
+        create: bool = True,
+        bind: bool = True,
+        versioned: bool = False
+    ) -> None:
+        name, namespace = resolve(path, path = True)
+        LMDBObject.__init__(
+            self, name, properties = [{}, {}], namespace = namespace,
+            create = create, bind = bind, versioned = versioned
+        )
+        Metadata.__init__(
+            self,
+            encode_key = self.encode_key,
+            encode_value = self.encode_value,
+            decode_value = self.decode_value
+        )
 
-  def __setitem__(self, key, value):
-    return self.put(key, value)
+    def _bind(self, *args: Any) -> None:
+        Metadata._bind(self)
+        setattr(self, 'get', types.MethodType(mixins.dict.get(
+            DICT_INDEX,
+            self.encode_key if not isinstance(self.encode_key, Missing) else \
+            cast(Callable[..., ByteString], pickle.dumps),
+            self.decode_value if not isinstance(self.decode_value, Missing) else \
+            cast(Callable[..., Any], pickle.loads)
+        ), self))
+        setattr(self, 'keys', types.MethodType(mixins.iterator.iterate(
+            DICT_INDEX,
+            self.decode_key if not isinstance(self.decode_key, Missing) else \
+            cast(Callable[..., Any], pickle.loads),
+            self.decode_value if not isinstance(self.decode_value, Missing) else \
+            cast(Callable[..., Any], pickle.loads),
+            keys = True, values = False
+        ), self))
+        setattr(self, 'values', types.MethodType(mixins.iterator.iterate(
+            DICT_INDEX,
+            self.decode_key if not isinstance(self.decode_key, Missing) else \
+            cast(Callable[..., Any], pickle.loads),
+            self.decode_value if not isinstance(self.decode_value, Missing) else \
+            cast(Callable[..., Any], pickle.loads),
+            keys = False, values = True
+        ), self))
+        setattr(self, 'items', types.MethodType(mixins.iterator.iterate(
+            DICT_INDEX,
+            self.decode_key if not isinstance(self.decode_key, Missing) else \
+            cast(Callable[..., Any], pickle.loads),
+            self.decode_value if not isinstance(self.decode_value, Missing) else \
+            cast(Callable[..., Any], pickle.loads),
+            keys = True, values = True
+        ), self))
+        setattr(self, 'pop', types.MethodType(mixins.dict.pop(
+            DICT_INDEX,
+            self.encode_key if not isinstance(self.encode_key, Missing) else \
+            cast(Callable[..., ByteString], pickle.dumps),
+            self.decode_value if not isinstance(self.decode_value, Missing) else \
+            cast(Callable[..., Any], pickle.loads)
+        ), self))
+        setattr(self, 'popitem', types.MethodType(mixins.dict.popitem(
+            DICT_INDEX,
+            self.decode_key if not isinstance(self.decode_key, Missing) else \
+            cast(Callable[..., Any], pickle.loads),
+            self.decode_value if not isinstance(self.decode_value, Missing) else \
+            cast(Callable[..., Any], pickle.loads)
+        ), self))
+        setattr(
+            self, 'clear', types.MethodType(mixins.collection.clear(DICT_INDEX), self)
+        )
+        setattr(
+            self, '_size', types.MethodType(mixins.collection.size(DICT_INDEX), self)
+        )
+        setattr(self, 'update', types.MethodType(mixins.dict.update(
+            DICT_INDEX,
+            self.encode_key if not isinstance(self.encode_key, Missing) else \
+            cast(Callable[..., ByteString], pickle.dumps),
+            self.encode_value if not isinstance(self.encode_value, Missing) else \
+            cast(Callable[..., ByteString], pickle.dumps)
+        ), self))
+        setattr(self, 'setdefault', types.MethodType(mixins.dict.setdefault(
+            DICT_INDEX,
+            self.encode_key if not isinstance(self.encode_key, Missing) else \
+            cast(Callable[..., ByteString], pickle.dumps),
+            self.encode_value if not isinstance(self.encode_value, Missing) else \
+            cast(Callable[..., ByteString], pickle.dumps),
+            self.decode_value if not isinstance(self.decode_value, Missing) else \
+            cast(Callable[..., ByteString], pickle.dumps)
+        ), self))
+        setattr(self, '_put', types.MethodType(mixins.dict.put(
+            DICT_INDEX,
+            self.encode_key if not isinstance(self.encode_key, Missing) else \
+            cast(Callable[..., ByteString], pickle.dumps),
+            self.encode_value if not isinstance(self.encode_value, Missing) \
+            else cast(Callable[..., ByteString], pickle.dumps)
+        ), self))
+        setattr(self, '_contains', types.MethodType(mixins.dict.contains(
+            DICT_INDEX,
+            self.encode_key if not isinstance(self.encode_key, Missing) else \
+            cast(Callable[..., ByteString], pickle.dumps)
+        ), self))
+        setattr(self, '_delete', types.MethodType(mixins.dict.delete(
+            DICT_INDEX,
+            self.encode_key if not isinstance(self.encode_key, Missing) else \
+            cast(Callable[..., ByteString], pickle.dumps)
+        ), self))
 
-  def __getitem__(self, key):
-    return self.get(key)
+    def __getitem__(self, key: Any) -> Any:
+        return self.get(key)
 
-  def __delitem__(self, key):
-    return self.delete(key)
+    def __setitem__(self, key: Any, value: Any) -> None:
+        self._put(key, value)
 
-  def __len__(self):
-    return self.size()
+    def __iter__(self) -> Iterator[Any]:
+        return self.keys()
 
-  def __contains__(self, key):
-    return self.contains(key)
+    def __len__(self) -> int:
+        return self._size()
 
-  def on_bind(self):
-    self._get_attr = generic_dict_get(
-      self, Database.First.value, self.attr_encode_key, self.attr_decode_value
-    )
-    self._put_attr = generic_dict_put(
-      self, Database.First.value, self.attr_encode_key, self.attr_encode_value
-    )
-    self.delete = generic_dict_delete(self, Database.Second.value, self.dict_encode_key)
-    self.size = generic_size(self, Database.Second.value)
-    self.get = generic_dict_get(self, Database.Second.value, self.dict_encode_key, self.dict_decode_value)
-    self.put = generic_dict_put(self, Database.Second.value, self.dict_encode_key, self.dict_encode_value)
-    self.contains = generic_dict_contains(self, Database.Second.value, self.dict_encode_key)
-    self.keys = generic_dict_iter(
-      self, Database.Second.value, self.dict_decode_key, self.dict_decode_value, 
-      keys = True, values = False
-    )
-    self.values = generic_dict_iter(
-      self, Database.Second.value, self.dict_decode_key, self.dict_decode_value, 
-      keys = False, values = True
-    )
-    self.items = generic_dict_iter(
-      self, Database.Second.value, self.dict_decode_key, self.dict_decode_value, 
-      keys = True, values = True
-    )
-    self.pop = generic_dict_pop(self, Database.Second.value, self.dict_encode_key, self.dict_decode_value)
-    self.popitem = generic_dict_popitem(self, Database.Second.value, self.dict_decode_key, self.dict_decode_value)
-    self.clear = generic_clear(self, Database.Second.value)
-    self.update = generic_dict_update(self, Database.Second.value, self.dict_encode_key, self.dict_encode_value)
-    self.setdefault = generic_dict_setdefault(
-      self, Database.Second.value, self.dict_encode_key, self.dict_encode_value, self.dict_decode_value
-    )
+    def __contains__(self, key: Any) -> bool:
+        return self._contains(key)
 
-  def on_unbind(self):
-    del to_wire['_get_attr']
-    del to_wire['_put_attr']
-    del to_wire['size']
-    del to_wire['delete']
-    del to_wire['get']
-    del to_wire['put']
-    del to_wire['contains']
-    del to_wire['keys']
-    del to_wire['values']
-    del to_wire['items']
-    del to_wire['clear']
-    del to_wire['setdefault']
-    del to_wire['update']
-    del to_wire['popitem']
-    del to_wire['pop']
-    
-  def attr_encode_key(self, key):
-    return dumps(key)
+    def __delitem__(self, key: Any) -> None:
+        self._delete(key)
 
-  def attr_encode_value(self, value):
-    return dumps(value)
+    get: Callable[..., Any] = Missing()
 
-  def attr_decode_value(self, value):
-    return loads(value)
+    keys: Callable[..., Iterator[Any]] = Missing()
 
-  def dict_encode_key(self, key):
-    return dumps(key)
+    values: Callable[..., Iterator[Any]] = Missing()
 
-  def dict_decode_key(self, key):
-    return loads(key)
+    items: Callable[..., Iterator[Tuple[Any, Any]]] = Missing()
 
-  def dict_encode_value(self, value):
-    return dumps(value)
+    pop: Callable[..., Any] = Missing()
 
-  def dict_decode_value(self, value):
-    return loads(value)
+    popitem: Callable[..., Any] = Missing()
 
+    clear: Callable[..., None] = Missing()
 
-  
-    
+    update: Callable[..., None] = Missing()
 
+    setdefault: Callable[..., Any] = Missing()
+
+    _size: Callable[..., int] = Missing()
+
+    _put: Callable[..., None] = Missing()
+
+    _contains: Callable[..., bool] = Missing()
+
+    _delete: Callable[..., None] = Missing()
+
+    decode_key: Callable[..., Any] = Missing()
+
+    encode_key: Callable[..., ByteString] = Missing()
+
+    decode_value: Callable[..., Any] = Missing()
+
+    encode_value: Callable[..., ByteString] = Missing()

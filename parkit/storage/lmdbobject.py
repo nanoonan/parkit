@@ -1,192 +1,185 @@
+# pylint: disable = c-extension-no-member, super-init-not-called, too-many-arguments, too-many-instance-attributes
 import datetime
 import logging
-import orjson
-import os
-import parkit.constants as constants
-import parkit.storage.threadlocal as thread
 import struct
 import uuid
 
+from typing import (
+    Any, Callable, List, Optional, Tuple
+)
+
+import orjson
+
+import parkit.constants as constants
+import parkit.storage.threadlocal as thread
+
 from parkit.storage.context import context
-from parkit.storage.database import Database
 from parkit.exceptions import (
-  ObjectExistsError,
-  ObjectNotFoundError
+    ObjectExistsError,
+    ObjectNotFoundError
 )
-from parkit.storage.lmdbbase import LMDBBase
+from parkit.storage.lmdbapi import LMDBAPI
 from parkit.storage.lmdbenv import (
-  get_database,
-  get_environment
+    get_database,
+    open_database,
+    get_environment
 )
-from parkit.storage.lmdbpublic import LMDBPublic
+from parkit.storage.lmdbstate import LMDBState
+from parkit.storage.lmdbtypes import (
+    Descriptor,
+    LMDBProperties
+)
 from parkit.utility import (
-  create_string_digest,
-  get_qualified_class_name,
-  resolve
+    create_string_digest,
+    get_qualified_class_name
 )
 
 logger = logging.getLogger(__name__)
 
-class LMDBObject(LMDBBase, LMDBPublic):
+class LMDBObject(LMDBAPI):
 
-  def __init__(
-    self, path, create = True, bind = True, versioned = False,
-    on_create = lambda: None, databases = [{}]
-  ):
-    if not create and not bind:
-      raise ValueError()
+    def __init__(
+        self,
+        name: str,
+        properties: List[LMDBProperties],
+        namespace: Optional[str] = None,
+        create: bool = True,
+        bind: bool = True,
+        versioned: bool = False,
+        on_create: Callable[[], None] = lambda: None
+    ) -> None:
+        if not create and not bind:
+            raise ValueError()
 
-    name, namespace = resolve(path, path = True)
-    self._encoded_name = name.encode('utf-8')
-    self._namespace = namespace if namespace else constants.DEFAULT_NAMESPACE
-    self._lmdb, metadata_db, version_db, instance_db = get_environment(self._namespace)
-    self._databases = [
-      (id(instance_db), instance_db), 
-      (id(metadata_db), metadata_db), 
-      (id(version_db), version_db)
-    ]
+        self._encoded_name = name.encode('utf-8')
+        self._namespace = namespace if namespace else constants.DEFAULT_NAMESPACE
 
-    is_bound = False
+        self._environment, self._name_db, self._metadata_db, self._version_db, \
+        self._descriptor_db = get_environment(self._namespace)
 
-    if bind:
-      is_bound, metadata = self._try_bind()
-    
-    if is_bound: 
-      self._finish_bind(metadata)
-      self.on_bind()
-    elif create:
-      with context(self._lmdb, write = True, inherit = True):    
-        self._create(databases = databases, versioned = versioned)
-        self.on_bind()
-        on_create()
-    else:
-      raise ObjectNotFoundError()
+        self._name_dbuid = id(self._name_db)
+        self._metadata_dbuid = id(self._metadata_db)
+        self._version_dbuid = id(self._version_db)
+        self._descriptor_dbuid = id(self._descriptor_db)
+        self._user_db = []
+        self._user_dbuid = []
 
-  def __hash__(self):
-    return self._uuid_bytes
+        if bind:
+            descriptor = self._try_bind_lmdb()
 
-  def __ne__(self, other):
-    return not self.__eq__(other)
-
-  def __eq__(self, other):
-    if issubclass(type(other), LMDBBase):
-      return self._uuid_bytes == other._uuid_bytes
-    else:
-      return False
-
-  def __getstate__(self):
-    to_wire = dict(self.__dict__)
-    del to_wire['_lmdb'] 
-    del to_wire['_databases']
-    to_wire['_encoded_name'] = to_wire['_encoded_name'].decode('utf-8')
-    to_wire['_uuid_bytes'] = str(uuid.UUID(bytes = self._uuid_bytes)) if to_wire['_uuid_bytes'] else None
-    to_wire['_creator'] = False
-    self.on_unbind()
-    return to_wire
-
-  def __setstate__(self, from_wire):
-    self.__dict__ = from_wire
-    self._lmdb, metadata_db, version_db, instance_db = get_environment(self._namespace)
-    self._databases = [
-      (id(instance_db), instance_db), 
-      (id(metadata_db), metadata_db), 
-      (id(version_db), version_db)
-    ]
-    self._encoded_name = self._encoded_name.encode('utf-8')
-    self._uuid_bytes = uuid.UUID(self._uuid_bytes).bytes if self._uuid_bytes else None
-    if self._uuid_bytes:
-      with context(self._lmdb, write = False, inherit = True):
-        txn = thread.local.transaction
-        name_db = self._databases[Database.Name.value][1]
-        metadata_db = self._databases[Database.Metadata.value][1]
-        obj_uuid = txn.get(key = self._encoded_name, db = name_db)
-        if obj_uuid != self._uuid_bytes:
+        if descriptor:
+            self._finish_bind_lmdb(descriptor)
+            self._bind()
+        elif create:
+            with context(self._environment, write = True, inherit = True, buffers = False):
+                self._create_lmdb(properties, versioned)
+                self._bind()
+                on_create()
+        else:
             raise ObjectNotFoundError()
-        metadata = orjson.loads(bytes(txn.get(key = obj_uuid, db = metadata_db)))
-      self._finish_bind(metadata)
-    self.on_bind()
 
-  def _try_bind(self):
-    with context(self._lmdb, write = False, inherit = True): 
-      name_db = self._databases[Database.Name.value][1]
-      txn = thread.local.transaction
-      obj_uuid = txn.get(key = self._encoded_name, db = name_db)
-      if obj_uuid:
-        metadata_db = self._databases[Database.Metadata.value][1]
-        metadata = orjson.loads(bytes(txn.get(key = obj_uuid, db = metadata_db)))
-        if metadata['system']['type'] != get_qualified_class_name(self):
-          raise TypeError()
-        self._uuid_bytes = bytes(obj_uuid)
-        self._creator = False
-        self._versioned = metadata['system']['versioned']
-        return (True, metadata)
-      else:
-        return (False, None)
+    def __hash__(self) -> int:
+        return int(self._uuid_bytes)
 
-  def _finish_bind(self, metadata):
-    self._databases.extend([None] * len(metadata['system']['databases']))
-    databases = [
-      (
-        index + len(self._databases), 
-        thread.local.databases[db_uid] if db_uid in thread.local.databases else None, 
-        db_uid, properties
-      ) 
-      for index, (db_uid, properties) in enumerate(metadata['system']['databases'])
-    ]
-    if any([db is None for _, db, _, _ in databases]):
-      with context(self._lmdb, write = True, inherit = True):
+    def __ne__(self, other: Any) -> bool:
+        return not self.__eq__(other)
+
+    def __eq__(self, other: Any) -> bool:
+        if issubclass(type(other), LMDBState):
+            return self._uuid_bytes == other._uuid_bytes
+        return False
+
+    def __getstate__(self) -> Tuple[str, bytes, bytes]:
+        return (self._namespace, self._encoded_name, self._uuid_bytes)
+
+    def __setstate__(self, from_wire: Tuple[str, bytes, bytes]) -> None:
+        self._namespace, self._encoded_name, self._uuid_bytes = from_wire
+
+        self._environment, self._name_db, self._metadata_db, self._version_db, \
+        self._descriptor_db = get_environment(self._namespace)
+
+        self._name_dbuid = id(self._name_db)
+        self._metadata_dbuid = id(self._metadata_db)
+        self._version_dbuid = id(self._version_db)
+        self._descriptor_dbuid = id(self._descriptor_db)
+        self._user_db = []
+        self._user_dbuid = []
+        with context(self._environment, write = False, inherit = True, buffers = False):
+            txn = thread.local.transaction
+            obj_uuid = txn.get(key = self._encoded_name, db = self._name_db)
+            if obj_uuid != self._uuid_bytes:
+                raise ObjectNotFoundError()
+            result = txn.get(key = obj_uuid, db = self._descriptor_db)
+            result = bytes(result) if isinstance(result, memoryview) else result
+            descriptor = orjson.loads(result)
+            self._creator = False
+            self._versioned = descriptor['versioned']
+        self._finish_bind_lmdb(descriptor)
+        self._bind()
+
+    def _try_bind_lmdb(self) -> Optional[Descriptor]:
+        with context(self._environment, write = False, inherit = True, buffers = False):
+            txn = thread.local.transaction
+            result = txn.get(key = self._encoded_name, db = self._name_db)
+            if result:
+                obj_uuid = bytes(result) if isinstance(result, memoryview) else result
+                result = txn.get(key = obj_uuid, db = self._descriptor_db)
+                result = bytes(result) if isinstance(result, memoryview) else result
+                descriptor = orjson.loads(result)
+                if descriptor['type'] != get_qualified_class_name(self):
+                    raise TypeError()
+                self._uuid_bytes = obj_uuid
+                self._creator = False
+                self._versioned = descriptor['versioned']
+                return descriptor
+            return None
+
+    def _finish_bind_lmdb(self, descriptor: Descriptor) -> None:
+        for dbuid, _ in descriptor['databases']:
+            self._user_db.append(get_database(dbuid))
+            self._user_dbuid.append(dbuid)
+        if any([db is None for db in self._user_db]):
+            with context(self._environment, write = True, inherit = True, buffers = False):
+                txn = thread.local.transaction
+                for index, (dbuid, properties) in enumerate(descriptor['databases']):
+                    if not self._user_db[index]:
+                        self._user_db[index] = \
+                        open_database(txn, self._environment, dbuid, properties, create = False)
+
+    def _create_lmdb(
+        self,
+        properties: List[LMDBProperties],
+        versioned: bool
+    ) -> None:
         txn = thread.local.transaction
-        for index, _, db_uid, properties in databases:
-          self._databases[index] = (
-            db_uid,
-            get_database(txn, self._lmdb, db_uid, properties, create = False)
-          )
-    else:
-      with context(self._lmdb, write = False, inherit = True):
-        for index, db, db_uid, _ in databases:
-          self._databases[index] = (db_uid, db)
+        obj_uuid = txn.get(key = self._encoded_name, db = self._name_db)
+        if obj_uuid:
+            raise ObjectExistsError()
+        obj_uuid = uuid.uuid4().bytes
+        assert txn.put(key = self._encoded_name, value = obj_uuid, db = self._name_db)
+        assert txn.put(key = obj_uuid, value = struct.pack('@N', 0), db = self._version_db)
+        basename = str(uuid.uuid4())
+        descriptor = dict(
+            databases = list(
+                zip(
+                    [
+                        create_string_digest(''.join([basename, str(i)]))
+                        for i in range(len(properties))
+                    ],
+                    properties
+                )
+            ),
+            versioned = versioned,
+            created = datetime.datetime.now(),
+            type = get_qualified_class_name(self)
+        )
+        assert txn.put(key = obj_uuid, value = orjson.dumps(descriptor), db = self._descriptor_db)
+        for dbuid, props in descriptor['databases']:
+            self._user_db.append(open_database(txn, self._environment, dbuid, props, create = True))
+            self._user_dbuid.append(dbuid)
+        self._versioned = descriptor['versioned']
+        self._uuid_bytes = obj_uuid
+        self._creator = True
 
-  def _create(self, databases = [], versioned = False):
-    name_db = self._databases[Database.Name.value][1]
-    txn = thread.local.transaction
-    obj_uuid = txn.get(key = self._encoded_name, db = name_db)
-    if obj_uuid:
-      raise ObjectExistsError()
-    obj_uuid = uuid.uuid4().bytes
-    version_db = self._databases[Database.Version.value][1]
-    metadata_db = self._databases[Database.Metadata.value][1]
-    assert txn.put(key = self._encoded_name, value = obj_uuid, db = name_db)
-    assert txn.put(key = obj_uuid, value = struct.pack('@N', 0), db = version_db)
-    basename = str(uuid.uuid4()) if len(databases) else None
-    metadata = dict(
-      system = dict(
-        databases = list(
-          zip(
-            [
-              create_string_digest(''.join([basename, str(i)])) 
-              for i in range(len(databases))
-            ], 
-            databases
-          )
-        ),
-        versioned = versioned,
-        created = datetime.datetime.now(),
-        type = get_qualified_class_name(self)
-      ),
-      user = {}
-    )
-    assert txn.put(key = obj_uuid, value = orjson.dumps(metadata), db = metadata_db)
-    [
-      self._databases.append((
-        db_uid,
-        get_database(txn, self._lmdb, db_uid, properties, create = True)
-      ))
-      for db_uid, properties in metadata['system']['databases']
-    ]
-    self._versioned = metadata['system']['versioned']
-    self._uuid_bytes = obj_uuid
-    self._creator = True
-  
-   
-    
-  
+    def _bind(self, *args: Any) -> None:
+        pass

@@ -1,3 +1,0 @@
-
-class LMDBBase():
-  pass

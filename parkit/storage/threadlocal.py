@@ -1,29 +1,27 @@
+# pylint: disable = too-few-public-methods
+import collections
 import threading
 import logging
 
+from typing import (
+    Any, Dict, List, Set, Tuple, Union
+)
+
+import lmdb
+
 logger = logging.getLogger(__name__)
 
-class CursorDict(dict):
-
-  def __getitem__(self, key):
-    if not dict.__contains__(self, key):
-      cursor = local.transaction.cursor(db = local.databases[key])
-      dict.__setitem__(self, key, cursor)
-      return cursor
-    return dict.__getitem__(self, key)
-
 class ThreadLocalVars(threading.local):
-  
-  def __init__(self):
-    super().__init__()
-    self.__dict__['transaction'] = None
-    self.__dict__['cursors'] = None
-    self.__dict__['changed'] = None
-    self.__dict__['transaction_stack'] = []
-    self.__dict__['changed_stack'] = []
-    self.__dict__['cursors_stack'] = []
-    self.__dict__['property_stack'] = []
-    self.__dict__['databases'] = {}
+
+    def __init__(self) -> None:
+        super().__init__()
+
+        self.context: \
+        List[Tuple[lmdb.Transaction, Dict[Union[str, int], lmdb.Cursor], Set[Any], bool]] = []
+
+        self.arguments: List[Tuple[bool, bool]] = []
+        self.transaction: lmdb.Transaction = None
+        self.changed: Set[Any] = set()
+        self.cursors: Dict[Union[str, int], lmdb.Cursor] = collections.defaultdict(lambda: None)
 
 local = ThreadLocalVars()
-

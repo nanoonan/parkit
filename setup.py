@@ -13,8 +13,6 @@ setup(
   long_description=open('README.md').read(),
   install_requires=[
     'mmh3',
-    'pandas',
-    'numpy',
     'lmdb',
     'daemoniker',
     'psutil',

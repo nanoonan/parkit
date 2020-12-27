@@ -1,67 +1,66 @@
 import logging
-import struct
+import pickle
+import types
 
-from parkit.adapters.collection import Collection
-from parkit.adapters.encoders import Pickle
-from parkit.adapters.mixins import (
-  generic_queue_get,
-  generic_queue_put,
-  generic_size
+from typing import (
+    Any, ByteString, Callable, cast
 )
-from parkit.constants import *
-from parkit.exceptions import *
-from parkit.utility import *
-from parkit.storage import context
+
+import parkit.storage.mixins as mixins
+
+from parkit.adapters.metadata import Metadata
+from parkit.adapters.missing import Missing
+from parkit.storage import LMDBObject
+from parkit.utility import resolve
 
 logger = logging.getLogger(__name__)
 
-class Queue(Collection):  
+QUEUE_INDEX = 0
 
-  def __init__(
-    self, name, namespace = None, repository = None, create = False, bind = True, 
-    encoders = [Pickle], initial_metadata = None, initializer = None
-  ):      
-    
-    super().__init__(name, namespace = namespace, repository = repository)
+class Queue(LMDBObject, Metadata):
 
-    self._mixin_methods()
+    def __init__(
+        self, path: str, create: bool = True, bind: bool = True, versioned: bool = False
+    ) -> None:
+        name, namespace = resolve(path, path = True)
+        LMDBObject.__init__(
+            self, name, properties = [{'integerkey':True}], namespace = namespace,
+            create = create, bind = bind, versioned = versioned,
+        )
+        Metadata.__init__(
+            self,
+            encode_key = self.encode_key,
+            encode_value = self.encode_value,
+            decode_value = self.decode_value
+        )
 
-    kwargs = dict(
-      request_databases = [dict(integer_keys = True, duplicates = False)],
-      request_versioned = False, 
-      create = create, 
-      bind = bind,
-      encoders = encoders, 
-      initial_metadata = initial_metadata
-    )
+    def __len__(self) -> int:
+        return self.qsize()
 
-    self._pre_create_or_bind(kwargs)
+    def _bind(self, *args: Any) -> None:
+        Metadata._bind(self)
+        setattr(self, 'get', types.MethodType(mixins.queue.get(
+            QUEUE_INDEX,
+            self.decode_value if not isinstance(self.decode_value, Missing) else \
+            cast(Callable[..., Any], pickle.loads)
+        ), self))
+        setattr(self, 'put', types.MethodType(mixins.queue.put(
+            QUEUE_INDEX,
+            self.encode_value if not isinstance(self.encode_value, Missing) else \
+            cast(Callable[..., ByteString], pickle.dumps)
+        ), self))
+        setattr(
+            self, 'qsize', types.MethodType(mixins.collection.size(QUEUE_INDEX), self)
+        )
 
-    with context(self, write = create, inherit = True) as txn:  
-      self._create_or_bind(txn, kwargs)
-      if initializer is not None:
-        initializer()
+    get: Callable[..., Any] = Missing()
 
-  def _mixin_methods(self):
-    if not hasattr(Queue, '__len__'):
-      setattr(Queue, '__len__', generic_size(self))
-    self.qsize = generic_size(self)
-    self.get = generic_queue_get(self, fifo = True)
-    self.put = generic_queue_put(self)
+    put: Callable[..., bool] = Missing()
 
-  def __getstate__(self):
-    to_wire = super().__getstate__()
-    del to_wire['qsize']
-    del to_wire['get']
-    del to_wire['put']
-    return to_wire
+    qsize: Callable[..., int] = Missing()
 
-  def __setstate__(self, from_wire):
-    super().__setstate__(from_wire)
-    self._mixin_methods()
+    encode_key: Callable[..., ByteString] = Missing()
 
-  def empty(self):
-    return self.qsize() == 0
+    decode_value: Callable[..., Any] = Missing()
 
-  
-      
+    encode_value: Callable[..., ByteString] = Missing()

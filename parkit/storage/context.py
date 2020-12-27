@@ -1,76 +1,114 @@
+# pylint: disable = broad-except, protected-access, unsubscriptable-object
+import collections
 import contextlib
-import lmdb
 import logging
-import os
+
+from typing import (
+    ContextManager, Iterator, Union
+)
+
+import lmdb
+
 import parkit.storage.threadlocal as thread
 
 from parkit.exceptions import (
-  abort,
-  log_and_raise,
-  TransactionError
+    abort,
+    ContextError
 )
-from parkit.storage.lmdbbase import LMDBBase
-from parkit.storage.lmdbenv import get_environment
+from parkit.storage.lmdbapi import LMDBAPI
+from parkit.storage.lmdbenv import (
+    get_database,
+    get_environment
+)
 from parkit.utility import resolve
 
 logger = logging.getLogger(__name__)
 
+class CursorDict(dict):
+
+    def __init__(self, txn: lmdb.Transaction) -> None:
+        super().__init__()
+        self._txn = txn
+
+    def __getitem__(self, key: Union[str, int]) -> lmdb.Cursor:
+        if not dict.__contains__(self, key):
+            database = get_database(key)
+            cursor = self._txn.cursor(db = database)
+            dict.__setitem__(self, key, cursor)
+            return cursor
+        return dict.__getitem__(self, key)
+
 @contextlib.contextmanager
-def context(obj, write = False, inherit = False, zerocopy = False):
-  lmdb = obj if isinstance(obj, lmdb.Environment) else obj._lmdb
-  try:
-    inherit = inherit if thread.local.transaction else False
-    if thread.local.transaction is None or not inherit:
-      thread.local.transaction = lmdb.begin(
-        write = write, buffers = zerocopy, 
-        parent = None if not len(thread.local.transaction_stack) else thread.local.transaction_stack[-1]
-      )
-      thread.local.transaction_stack.append(thread.local.transaction)
-      thread.local.changed_stack.append(set())
-      thread.local.changed = thread.local.changed_stack[-1]
-      thread.local.cursors_stack.append(thread.CursorDict())
-      thread.local.cursors = thread.local.cursors_stack[-1]
-    thread.local.property_stack.append((inherit, write))
-    yield True
-    inherit, write = thread.local.property_stack[-1]
-    if not inherit:
-      if write:
-        if len(thread.local.changed):
-          [obj.increment_version() for obj in thread.local.changed]
-      thread.local.transaction.commit()
-  except BaseException as e:
-    abort(e)
-  finally:
-    thread.local.property_stack.pop()
-    if not inherit:
-      [cursor.close() for cursor in thread.local.cursors.values()]
-      thread.local.cursors_stack.pop()
-      thread.local.cursors = None if not len(thread.local.cursors_stack) else thread.local.cursors_stack[-1]
-      thread.local.changed_stack.pop()
-      thread.local.changed = None if not len(thread.local.changed_stack) else thread.local.changed_stack[-1]
-      thread.local.transaction_stack.pop()
-      thread.local.transaction = None if not len(thread.local.transaction_stack) else thread.local.transaction_stack[-1]
-      
-def transaction(*args, zerocopy = False):
-  if len(args) and issubclass(type(args[0]), LMDBBase):
-    lmdb = args[0]._lmdb
-  elif len(args) and isinstance(args[0], str):
-    lmdb, _, _, _ = get_environment(resolve(args[0], path = False))
-  elif not len(args):
-    lmdb, _, _, _ = get_environment(None)
-  else:
-    raise TypeError('Cannot determine namespace from arguments')
-  return context(lmdb, write = True, inherit = False, zerocopy = zerocopy)
+def context(
+    env: lmdb.Environment,
+    write: bool = False, inherit: bool = False, buffers: bool = False
+) -> Iterator[lmdb.Transaction]:
+    ctx_stack = thread.local.context
+    cur_ctx = ctx_stack[-1] if ctx_stack else None
+    inherit = inherit if cur_ctx else False
+    if not inherit and write and cur_ctx and not cur_ctx[3]:
+        raise ContextError('Cannot open transaction in snapshot context')
+    try:
+        if not inherit:
+            txn = env.begin(
+                write = write, buffers = buffers,
+                parent = None if not cur_ctx else cur_ctx[0]
+            )
+            ctx_stack.append((
+                txn,
+                CursorDict(txn),
+                set(),
+                write
+            ))
+            thread.local.transaction = ctx_stack[-1][0]
+            thread.local.cursors = ctx_stack[-1][1]
+            thread.local.changed = ctx_stack[-1][2]
+        thread.local.arguments.append((inherit, write))
+        try:
+            yield thread.local.transaction
+        finally:
+            inherit, write = thread.local.arguments.pop()
+        if not inherit:
+            if write:
+                for obj in thread.local.changed:
+                    if isinstance(obj, LMDBAPI):
+                        obj.increment_version()
+            thread.local.transaction.commit()
+    except BaseException as exc:
+        thread.local.transaction.abort()
+        abort(exc)
+    finally:
+        if not inherit:
+            ctx_stack = thread.local.context
+            for cursor in ctx_stack[-1][1].values():
+                cursor.close()
+            ctx_stack.pop()
+            if ctx_stack:
+                thread.local.transaction = ctx_stack[-1][0]
+                thread.local.cursors = ctx_stack[-1][1]
+                thread.local.changed = ctx_stack[-1][2]
+            else:
+                thread.local.transaction = None
+                thread.local.cursors = collections.defaultdict(lambda: None)
+                thread.local.changed = set()
 
-def snapshot(*args, zerocopy = False):
-  if len(args) and issubclass(type(args[0]), LMDBBase):
-    lmdb = args[0]._lmdb
-  elif len(args) and isinstance(args[0], str):
-    lmdb, _, _, _ = get_environment(resolve(args[0], path = False))
-  elif not len(args):
-    lmdb, _, _, _ = get_environment(None)
-  else:
-    raise TypeError('Cannot determine namespace from arguments')
-  return context(lmdb, write = False, inherit = False, zerocopy = zerocopy)
+def transaction(
+    obj: Union[LMDBAPI, str],
+    zerocopy: bool = False,
+    isolated = False
+) -> ContextManager:
+    if isinstance(obj, str):
+        env, _, _, _, _ = get_environment(resolve(obj, path = False))
+    else:
+        env = obj._environment
+    return context(env, write = True, inherit = not isolated, buffers = zerocopy)
 
-
+def snapshot(
+    obj: Union[LMDBAPI, str],
+    zerocopy: bool = False
+) -> ContextManager:
+    if isinstance(obj, str):
+        env, _, _, _, _ = get_environment(resolve(obj, path = False))
+    else:
+        env = obj._environment
+    return context(env, write = False, inherit = True, buffers = zerocopy)

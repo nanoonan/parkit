@@ -1,44 +1,55 @@
 import logging
 
-from parkit.storage import (
-  Database,
-  generic_dict_get,
-  generic_dict_put,
-  LMDBObject
-)
-
 from typing import (
-  Any, ByteString
+    Any, ByteString, Callable
 )
 
-try:
-  from cPickle import dumps, loads, HIGHEST_PROTOCOL as PICKLE_PROTOCOL
-except ImportError:
-  from pickle import dumps, loads, HIGHEST_PROTOCOL as PICKLE_PROTOCOL
+from parkit.adapters.attributes import Attributes
+from parkit.adapters.metadata import Metadata
+from parkit.adapters.missing import Missing
+from parkit.storage import LMDBObject
+from parkit.utility import resolve
 
 logger = logging.getLogger(__name__)
 
-class Object(LMDBObject):  
+ATTRS_INDEX = 0
 
-  def on_bind(self) -> None:
-    self._get_attr = generic_dict_get(self, Database.First.value, self.attr_encode_key, self.attr_decode_value)
-    self._put_attr = generic_dict_put(self, Database.First.value, self.attr_encode_key, self.attr_encode_value)
+class Object(LMDBObject, Attributes, Metadata):
 
-  def on_unbind(self) -> None:
-    del to_wire['_get_attr']
-    del to_wire['_put_attr']
+    def __init__(
+        self,
+        path: str,
+        create: bool = True,
+        bind: bool = True,
+        versioned: bool = False
+    ) -> None:
+        name, namespace = resolve(path, path = True)
+        LMDBObject.__init__(
+            self, name, properties = [{}], namespace = namespace,
+            create = create, bind = bind, versioned = versioned
+        )
+        Attributes.__init__(
+            self,
+            encode_key = self.encode_key,
+            decode_key = self.decode_key,
+            encode_value = self.encode_value,
+            decode_value = self.decode_value
+        )
+        Metadata.__init__(
+            self,
+            encode_key = self.encode_key,
+            encode_value = self.encode_value,
+            decode_value = self.decode_value
+        )
 
-  def attr_encode_key(self, key: Any) -> ByteString:
-    return dumps(key)
+    def _bind(self, *_: Any) -> None:
+        Attributes._bind(self, ATTRS_INDEX)
+        Metadata._bind(self)
 
-  def attr_encode_value(self, value: Any) -> ByteString:
-    return dumps(value)
+    encode_key: Callable[..., ByteString] = Missing()
 
-  def attr_decode_value(self, value:ByteString) -> Any:
-    return loads(value)
+    decode_key: Callable[..., Any] = Missing()
 
-  
+    decode_value: Callable[..., Any] = Missing()
 
-  
-    
-
+    encode_value: Callable[..., ByteString] = Missing()
