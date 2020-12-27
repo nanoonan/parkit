@@ -15,52 +15,40 @@ logger = logging.getLogger(__name__)
 
 class Attributes(LMDBState):
 
-    def __init__(
-        self,
-        encode_key: Callable[..., ByteString] = Missing(),
-        decode_key: Callable[..., Any] = Missing(),
-        encode_value: Callable[..., ByteString] = Missing(),
-        decode_value: Callable[..., Any] = Missing()
-    ):
-        super().__init__()
-        self._encattrkey: Callable[..., ByteString] = encode_key
-        self._decattrkey: Callable[..., ByteString] = decode_key
-        self._encattrval: Callable[..., ByteString] = encode_value
-        self._decattrval: Callable[..., Any] = decode_value
-
     @property
     def attributes(self) -> Iterator[str]:
         return self._attribute_keys()
 
     def _bind(
-        self, dbindex: int
+        self,
+        dbindex: int,
+        encode_key: Callable[..., ByteString] = Missing(),
+        decode_key: Callable[..., Any] = Missing(),
+        encode_value: Callable[..., ByteString] = Missing(),
+        decode_value: Callable[..., Any] = Missing()
     ) -> None:
         setattr(self, '_attribute_keys', types.MethodType(mixins.iterator.iterate(
             dbindex,
-            self._decattrkey if not isinstance(self._decattrkey, Missing) else \
+            decode_key if not isinstance(decode_key, Missing) else \
             cast(Callable[..., Any], pickle.loads),
-            self._decattrval if not isinstance(self._decattrval, Missing) else \
+            decode_value if not isinstance(decode_value, Missing) else \
             cast(Callable[..., Any], pickle.loads),
             keys = True, values = False
         ), self))
         setattr(self, '_get_attribute', types.MethodType(mixins.dict.get(
             dbindex,
-            self._encattrkey if not isinstance(self._encattrkey, Missing) else \
+            encode_key if not isinstance(encode_key, Missing) else \
             cast(Callable[..., ByteString], pickle.dumps),
-            self._decattrval if not isinstance(self._decattrval, Missing) else \
+            decode_value if not isinstance(decode_value, Missing) else \
             cast(Callable[..., Any], pickle.loads)
         ), self))
         setattr(self, '_put_attribute', types.MethodType(mixins.dict.put(
             dbindex,
-            self._encattrkey if not isinstance(self._encattrkey, Missing) else \
+            encode_key if not isinstance(encode_key, Missing) else \
             cast(Callable[..., ByteString], pickle.dumps),
-            self._encattrval if not isinstance(self._encattrval, Missing) else \
+            encode_value if not isinstance(encode_value, Missing) else \
             cast(Callable[..., ByteString], pickle.dumps)
         ), self))
-        del self.__dict__['_decattrkey']
-        del self.__dict__['_encattrkey']
-        del self.__dict__['_encattrval']
-        del self.__dict__['_decattrval']
 
     _attribute_keys: Callable[..., Iterator[str]] = Missing()
 

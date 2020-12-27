@@ -1,4 +1,4 @@
-# pylint: disable = c-extension-no-member, super-init-not-called, too-many-arguments, too-many-instance-attributes
+# pylint: disable = c-extension-no-member, too-many-arguments, too-many-instance-attributes
 import datetime
 import logging
 import struct
@@ -48,6 +48,8 @@ class LMDBObject(LMDBAPI):
         versioned: bool = False,
         on_create: Callable[[], None] = lambda: None
     ) -> None:
+        super().__init__()
+
         if not create and not bind:
             raise ValueError()
 

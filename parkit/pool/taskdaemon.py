@@ -79,8 +79,8 @@ if __name__ == '__main__':
                         result = target(*args, **kwargs)
                     else:
                         result = None
-                except BaseException as e:
-                    exc_value = e
+                except BaseException as exc:
+                    exc_value = exc
                 finally:
                     with transaction(process):
                         try:
@@ -94,5 +94,5 @@ if __name__ == '__main__':
                         except ObjectNotFoundError:
                             pass
 
-    except Exception as e:
-        log(e)
+    except Exception as exc:
+        log(exc)

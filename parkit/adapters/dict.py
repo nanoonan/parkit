@@ -31,15 +31,10 @@ class Dict(LMDBObject, Metadata):
             self, name, properties = [{}, {}], namespace = namespace,
             create = create, bind = bind, versioned = versioned
         )
-        Metadata.__init__(
-            self,
-            encode_key = self.encode_key,
-            encode_value = self.encode_value,
-            decode_value = self.decode_value
-        )
+        Metadata.__init__(self)
 
     def _bind(self, *args: Any) -> None:
-        Metadata._bind(self)
+        Metadata._bind(self, self.encode_key, self.encode_value, self.decode_value)
         setattr(self, 'get', types.MethodType(mixins.dict.get(
             DICT_INDEX,
             self.encode_key if not isinstance(self.encode_key, Missing) else \

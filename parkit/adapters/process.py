@@ -74,11 +74,7 @@ class Process(LMDBObject, Attributes, Metadata):
             self, name, properties = [{}], namespace = constants.PROCESS_NAMESPACE,
             create = create, bind = bind, versioned = versioned, on_create = on_create
         )
-        Attributes.__init__(
-            self,
-            encode_value = cloudpickle.loads,
-            decode_value = cloudpickle.dumps
-        )
+        Attributes.__init__(self)
         Metadata.__init__(self)
 
     @property
@@ -96,7 +92,11 @@ class Process(LMDBObject, Attributes, Metadata):
             return 'crashed'
 
     def _bind(self, *_: Any) -> None:
-        Attributes._bind(self, ATTRS_INDEX)
+        Attributes._bind(
+            self, ATTRS_INDEX,
+            encode_value = cloudpickle.dumps,
+            decode_value = cloudpickle.loads
+        )
         Metadata._bind(self)
 
     def drop(self) -> None:

@@ -28,13 +28,13 @@ def iterate(
         decode_key: Optional[Callable[..., Any]] = decode_key,
         decode_value: Optional[Callable[..., Any]] = decode_value
     ) -> Union[Any, Tuple[Any, Any]]:
-        decode_key = lambda key: key if not decode_key else decode_key
-        decode_value = lambda value: value if not decode_value else decode_value
+        decode_key = (lambda key: key) if decode_key is None else decode_key
+        decode_value = (lambda value: value) if decode_value is None else decode_value
         isolated = False if not transaction else isolated
         with context(
             self._environment, write = transaction, inherit = not isolated, buffers = zerocopy
         ):
-            cursor = thread.local.cursors[db0]
+            cursor = thread.local.cursors[self._user_dbuid[db0]]
             if not cursor.first():
                 return
             while True:

@@ -28,23 +28,23 @@ class Object(LMDBObject, Attributes, Metadata):
             self, name, properties = [{}], namespace = namespace,
             create = create, bind = bind, versioned = versioned
         )
-        Attributes.__init__(
-            self,
+        Attributes.__init__(self)
+        Metadata.__init__(self)
+
+    def _bind(self, *_: Any) -> None:
+        Attributes._bind(
+            self, ATTRS_INDEX,
             encode_key = self.encode_key,
             decode_key = self.decode_key,
             encode_value = self.encode_value,
             decode_value = self.decode_value
         )
-        Metadata.__init__(
+        Metadata._bind(
             self,
             encode_key = self.encode_key,
             encode_value = self.encode_value,
             decode_value = self.decode_value
         )
-
-    def _bind(self, *_: Any) -> None:
-        Attributes._bind(self, ATTRS_INDEX)
-        Metadata._bind(self)
 
     encode_key: Callable[..., ByteString] = Missing()
 

@@ -18,7 +18,7 @@ def clear(db0: int) -> Callable[..., None]:
             txn = thread.local.transaction
             if not txn:
                 implicit = True
-                txn = self._environment.begin()
+                txn = self._environment.begin(write = True)
             txn.drop(self._user_db[db0], delete = False)
             if implicit:
                 if self._versioned:

@@ -27,18 +27,13 @@ class Queue(LMDBObject, Metadata):
             self, name, properties = [{'integerkey':True}], namespace = namespace,
             create = create, bind = bind, versioned = versioned,
         )
-        Metadata.__init__(
-            self,
-            encode_key = self.encode_key,
-            encode_value = self.encode_value,
-            decode_value = self.decode_value
-        )
+        Metadata.__init__(self)
 
     def __len__(self) -> int:
         return self.qsize()
 
     def _bind(self, *args: Any) -> None:
-        Metadata._bind(self)
+        Metadata._bind(self, self.encode_key, self.encode_value, self.decode_value)
         setattr(self, 'get', types.MethodType(mixins.queue.get(
             QUEUE_INDEX,
             self.decode_value if not isinstance(self.decode_value, Missing) else \
