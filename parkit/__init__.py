@@ -1,12 +1,10 @@
 
 from parkit.adapters import (
 	Attr,
-	Attributes,
 	Dict,
-	Metadata,
-	Object,
 	Process,
-	Queue
+	Queue,
+	Shareable
 )
 from parkit.environment import (
 	is_pool_started,
@@ -15,7 +13,6 @@ from parkit.environment import (
 )
 from parkit.storage import (
 	namespaces,
-	objects,
 	paths,
 	snapshot,
 	transaction

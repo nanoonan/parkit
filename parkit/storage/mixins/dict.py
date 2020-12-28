@@ -10,7 +10,6 @@ from typing import (
 import parkit.storage.threadlocal as thread
 
 from parkit.exceptions import abort
-from parkit.storage.lmdbapi import LMDBAPI
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +20,7 @@ def get(
 ) -> Callable[..., Any]:
 
     def _get(
-        self: LMDBAPI,
+        self,
         key: Any,
         default: Any = None,
         encode_key: Optional[Callable[..., ByteString]] = encode_key,
@@ -53,7 +52,7 @@ def setdefault(
 ) -> Callable[..., Any]:
 
     def _setdefault(
-        self: LMDBAPI,
+        self,
         key: Any,
         default: Any = None,
         encode_key:  Optional[Callable[..., ByteString]] = encode_key,
@@ -64,7 +63,7 @@ def setdefault(
         default = default if not encode_value else encode_value(default)
         try:
             txn = None
-            cursor = thread.local.cursors[self._user_dbuid[db0]]
+            cursor = thread.local.cursors[id(self._user_db[db0])]
             if not cursor:
                 txn = self._environment.begin(write = True)
                 cursor = txn.cursor(db = self._user_db[db0])
@@ -97,13 +96,13 @@ def popitem(
 ) -> Callable[..., Any]:
 
     def _popitem(
-        self: LMDBAPI,
+        self,
         decode_key: Optional[Callable[..., Any]] = decode_key,
         decode_value: Optional[Callable[..., Any]] = decode_value
     ) -> Any:
         try:
             txn = None
-            cursor = thread.local.cursors[self._user_dbuid[db0]]
+            cursor = thread.local.cursors[id(self._user_db[db0])]
             if not cursor:
                 txn = self._environment.begin(write = True)
                 cursor = txn.cursor(db = self._user_db[db0])
@@ -143,7 +142,7 @@ def pop(
         pass
 
     def _pop(
-        self: LMDBAPI,
+        self,
         key: Any,
         default: Any = Unspecified(),
         encode_key: Optional[Callable[..., ByteString]] = encode_key,
@@ -152,7 +151,7 @@ def pop(
         key = key if not encode_key else encode_key(key)
         try:
             txn = None
-            cursor = thread.local.cursors[self._user_dbuid[db0]]
+            cursor = thread.local.cursors[id(self._user_db[db0])]
             if not cursor:
                 txn = self._environment.begin(write = True)
                 cursor = txn.cursor(db = self._user_db[db0])
@@ -184,7 +183,7 @@ def delete(
 ) -> Callable[..., None]:
 
     def _delete(
-        self: LMDBAPI,
+        self,
         key: Any,
         encode_key: Optional[Callable[..., ByteString]] = encode_key
     ) -> None:
@@ -215,14 +214,14 @@ def contains(
 ) -> Callable[..., bool]:
 
     def _contains(
-        self: LMDBAPI,
+        self,
         key: Any,
         encode_key: Optional[Callable[..., ByteString]] = encode_key
     ) -> bool:
         key = key if not encode_key else encode_key(key)
         try:
             txn = None
-            cursor = thread.local.cursors[self._user_dbuid[db0]]
+            cursor = thread.local.cursors[id(self._user_db[db0])]
             if not cursor:
                 txn = self._environment.begin()
                 cursor = txn.cursor(db = self._user_db[db0])
@@ -247,7 +246,7 @@ def put(
 ) -> Callable[..., None]:
 
     def _put(
-        self: LMDBAPI,
+        self,
         key: Any,
         value: Any,
         encode_key: Optional[Callable[..., ByteString]] = encode_key,
@@ -285,7 +284,7 @@ def update(
 ) -> Callable[..., None]:
 
     def _update(
-        self: LMDBAPI,
+        self,
         *args: Union[
             Tuple[()],
             Tuple[Union[Dict[Any, Any], MutableMapping[Any, Any], Iterable[Tuple[Any, Any]]]]
@@ -319,7 +318,7 @@ def update(
         ]
         try:
             txn = None
-            cursor = thread.local.cursors[self._user_dbuid[db0]]
+            cursor = thread.local.cursors[id(self._user_db[db0])]
             if not cursor:
                 txn = self._environment.begin(write = True)
                 cursor = txn.cursor(db = self._user_db[db0])

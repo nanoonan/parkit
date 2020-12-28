@@ -11,20 +11,19 @@ from parkit.exceptions import (
     abort,
     ObjectNotFoundError
 )
-from parkit.storage.lmdbapi import LMDBAPI
 
 logger = logging.getLogger(__name__)
 
 def get(
     encode_key: Callable[..., ByteString],
-    decode_metadata: Callable[..., Any]
+    decode_value: Callable[..., Any]
 ) -> Callable[..., Any]:
 
     def _get(
-        self: LMDBAPI,
-        key: Any = None,
+        self,
+        key: Any,
         encode_key: Optional[Callable[..., ByteString]] = encode_key,
-        decode_metadata: Optional[Callable[..., Any]] = decode_metadata
+        decode_value: Optional[Callable[..., Any]] = decode_value
     ) -> Any:
         try:
             if key is not None:
@@ -37,9 +36,9 @@ def get(
             if not txn:
                 implicit = True
                 txn = self._environment.begin(write = True)
-                cursor = txn.cursor(db = self._metadata_db)
+                cursor = txn.cursor(db = self._attribute_db)
             else:
-                cursor = thread.local.cursors[self._metadata_dbuid]
+                cursor = thread.local.cursors[id(self._attribute_db)]
             obj_uuid = txn.get(key = self._encoded_name, db = self._name_db)
             if obj_uuid == self._uuid_bytes:
                 if cursor.set_key(key):
@@ -57,15 +56,17 @@ def get(
         finally:
             if implicit and cursor:
                 cursor.close()
-        return decode_metadata(result) if result is not None and decode_metadata else result
+        return decode_value(result) if result is not None and decode_value else result
 
     return _get
 
-def delete(encode_key: Callable[..., ByteString]) -> Callable[..., None]:
+def delete(
+    encode_key: Callable[..., ByteString]
+) -> Callable[..., Any]:
 
     def _delete(
-        self: LMDBAPI,
-        key: Any = None,
+        self,
+        key: Any,
         encode_key: Optional[Callable[..., ByteString]] = encode_key
     ) -> None:
         try:
@@ -81,7 +82,7 @@ def delete(encode_key: Callable[..., ByteString]) -> Callable[..., None]:
                 txn = self._environment.begin(write = True)
             obj_uuid = txn.get(key = self._encoded_name, db = self._name_db)
             if obj_uuid == self._uuid_bytes:
-                txn.delete(key = key, db = self._metadata_db)
+                txn.delete(key = key, db = self._attribute_db)
                 if implicit:
                     txn.commit()
             else:
@@ -95,15 +96,15 @@ def delete(encode_key: Callable[..., ByteString]) -> Callable[..., None]:
 
 def put(
     encode_key: Callable[..., ByteString],
-    encode_metadata: Callable[..., ByteString]
-) -> Callable[..., None]:
+    encode_value: Callable[..., ByteString]
+):
 
     def _put(
-        self: LMDBAPI,
-        metadata: Any,
-        key: Any = None,
+        self,
+        key: Any,
+        value: Any,
         encode_key: Optional[Callable[..., ByteString]] = encode_key,
-        encode_metadata: Optional[Callable[..., ByteString]] = encode_metadata
+        encode_value: Optional[Callable[..., ByteString]] = encode_value
     ):
         try:
             if key is not None:
@@ -111,7 +112,7 @@ def put(
                 key = b''.join([self._uuid_bytes, key])
             else:
                 key = self._uuid_bytes
-            metadata = metadata if not encode_metadata else encode_metadata(metadata)
+            value = value if not encode_value else encode_value(value)
             implicit = False
             txn = thread.local.transaction
             if not txn:
@@ -120,8 +121,8 @@ def put(
             obj_uuid = txn.get(key = self._encoded_name, db = self._name_db)
             if obj_uuid == self._uuid_bytes:
                 assert txn.put(
-                    key = key, value = metadata, overwrite = True, append = False,
-                    db = self._metadata_db
+                    key = key, value = value, overwrite = True, append = False,
+                    db = self._attribute_db
                 )
                 if implicit:
                     txn.commit()

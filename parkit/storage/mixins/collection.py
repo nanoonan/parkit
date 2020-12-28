@@ -6,13 +6,12 @@ from typing import Callable
 import parkit.storage.threadlocal as thread
 
 from parkit.exceptions import abort
-from parkit.storage.lmdbapi import LMDBAPI
 
 logger = logging.getLogger(__name__)
 
 def clear(db0: int) -> Callable[..., None]:
 
-    def _clear(self: LMDBAPI) -> None:
+    def _clear(self) -> None:
         try:
             implicit = False
             txn = thread.local.transaction
@@ -35,7 +34,7 @@ def clear(db0: int) -> Callable[..., None]:
 
 def size(db0: int) -> Callable[..., int]:
 
-    def _size(self: LMDBAPI) -> int:
+    def _size(self) -> int:
         try:
             implicit = False
             txn = thread.local.transaction

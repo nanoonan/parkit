@@ -58,7 +58,7 @@ PERSISTENT_NAMESPACE = 'persistent'
 
 PROCESS_QUEUE_PATH = 'process/__process_queue__'
 
-METADATA_DATABASE = '__metadata__'
+ATTRIBUTE_DATABASE = '__attribute__'
 VERSION_DATABASE = '__version__'
 NAME_DATABASE = '__name__'
 DESCRIPTOR_DATABASE = '__descriptor__'

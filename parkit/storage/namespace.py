@@ -2,23 +2,19 @@ import logging
 import os
 
 from typing import (
-    Any, Iterator, Optional
+    Iterator, Optional
 )
 import parkit.constants as constants
 import parkit.storage.threadlocal as thread
 
 from parkit.storage.context import context
-from parkit.storage.lmdbstate import LMDBState
-from parkit.storage.lmdbenv import get_environment
+from parkit.storage.lmdbenv import get_environment_threadsafe
 from parkit.utility import (
     getenv,
     resolve
 )
 
 logger = logging.getLogger(__name__)
-
-def stats(namespace: str) -> Any:
-    pass
 
 def namespaces() -> Iterator[str]:
     for folder, _, _ in os.walk(getenv(constants.INSTALL_PATH_ENVNAME)):
@@ -27,12 +23,9 @@ def namespaces() -> Iterator[str]:
                 folder[len(getenv(constants.INSTALL_PATH_ENVNAME)):].split(os.path.sep)[1:]
             )
 
-def objects(namespace: Optional[str] = None) -> Iterator[LMDBState]:
-    pass
-
 def paths(namespace: Optional[str] = None) -> Iterator[str]:
     namespace = resolve(namespace, path = False) if namespace else constants.DEFAULT_NAMESPACE
-    env, name_db, _, _, _ = get_environment(namespace)
+    env, name_db, _, _, _ = get_environment_threadsafe(namespace)
     with context(env, write = False, inherit = True, buffers = False):
         cursor = thread.local.cursors[id(name_db)]
         if cursor.first():

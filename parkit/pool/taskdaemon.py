@@ -11,7 +11,7 @@ from parkit.adapters import Queue
 from parkit.pool.commands import create_pid_filepath
 from parkit.exceptions import (
     log,
-    ObjectNotFoundError
+    TransactionError
 )
 from parkit.storage import transaction
 from parkit.utility import polling_loop
@@ -57,6 +57,8 @@ if __name__ == '__main__':
         if platform.system() == 'Windows':
             del os.environ['__INVOKE_DAEMON__']
 
+        # FIXME: error handling needs work
+
         queue = Queue(constants.PROCESS_QUEUE_PATH)
         for _ in polling_loop(polling_interval):
             while True:
@@ -65,34 +67,36 @@ if __name__ == '__main__':
                     break
                 with transaction(process):
                     if process.exists:
-                        process._put_attribute('_status', 'running')
-                        process._put_attribute('_node_uid', node_uid)
-                        process._put_attribute('_pid', os.getpid())
-                        target = process._get_attribute('_target')
-                        args = process._get_attribute('_args')
-                        kwargs = process._get_attribute('_kwargs')
+                        process._put('status', 'running')
+                        process._put('node_uid', node_uid)
+                        process._put('pid', os.getpid())
                     else:
                         break
                 try:
                     result = exc_value = None
+                    target = process._get('target')
+                    args = process._get('args')
+                    kwargs = process._get('kwargs')
                     if target:
                         result = target(*args, **kwargs)
                     else:
                         result = None
                 except BaseException as exc:
+                    logger.exception('taskdaemon caught user error')
                     exc_value = exc
                 finally:
-                    with transaction(process):
-                        try:
+                    try:
+                        with transaction(process):
                             if process.exists:
-                                if exc_value is None:
-                                    process._put_attribute('_status', 'finished')
-                                    process._put_attribute('_result', result)
+                                if exc_value:
+                                    process._put('status', 'failed')
+                                    process._put('error', exc_value)
                                 else:
-                                    process._put_attribute('_status', 'failed')
-                                    process._put_attribute('_error', exc_value)
-                        except ObjectNotFoundError:
-                            pass
+                                    process._put('status', 'finished')
+                        if not exc_value:
+                            process._put('result', result)
+                    except TransactionError:
+                        pass
 
     except Exception as exc:
         log(exc)

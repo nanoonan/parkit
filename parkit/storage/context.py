@@ -4,7 +4,7 @@ import contextlib
 import logging
 
 from typing import (
-    ContextManager, Iterator, Union
+    Any, ContextManager, Iterator
 )
 
 import lmdb
@@ -15,11 +15,11 @@ from parkit.exceptions import (
     abort,
     ContextError
 )
-from parkit.storage.lmdbapi import LMDBAPI
 from parkit.storage.lmdbenv import (
-    get_database,
-    get_environment
+    get_database_threadsafe,
+    get_environment_threadsafe
 )
+from parkit.storage.objectmeta import ObjectMeta
 from parkit.utility import resolve
 
 logger = logging.getLogger(__name__)
@@ -30,9 +30,9 @@ class CursorDict(dict):
         super().__init__()
         self._txn = txn
 
-    def __getitem__(self, key: Union[str, int]) -> lmdb.Cursor:
+    def __getitem__(self, key: int) -> lmdb.Cursor:
         if not dict.__contains__(self, key):
-            database = get_database(key)
+            database = get_database_threadsafe(key)
             cursor = self._txn.cursor(db = database)
             dict.__setitem__(self, key, cursor)
             return cursor
@@ -71,7 +71,7 @@ def context(
         if not inherit:
             if write:
                 for obj in thread.local.changed:
-                    if isinstance(obj, LMDBAPI):
+                    if isinstance(type(obj), ObjectMeta):
                         obj.increment_version()
             thread.local.transaction.commit()
     except BaseException as exc:
@@ -93,22 +93,26 @@ def context(
                 thread.local.changed = set()
 
 def transaction(
-    obj: Union[LMDBAPI, str],
+    obj: Any,
     zerocopy: bool = False,
     isolated = False
 ) -> ContextManager:
     if isinstance(obj, str):
-        env, _, _, _, _ = get_environment(resolve(obj, path = False))
-    else:
+        env, _, _, _, _ = get_environment_threadsafe(resolve(obj, path = False))
+    elif isinstance(type(obj), ObjectMeta):
         env = obj._environment
+    else:
+        raise TypeError()
     return context(env, write = True, inherit = not isolated, buffers = zerocopy)
 
 def snapshot(
-    obj: Union[LMDBAPI, str],
+    obj: Any,
     zerocopy: bool = False
 ) -> ContextManager:
     if isinstance(obj, str):
-        env, _, _, _, _ = get_environment(resolve(obj, path = False))
-    else:
+        env, _, _, _, _ = get_environment_threadsafe(resolve(obj, path = False))
+    elif isinstance(type(obj), ObjectMeta):
         env = obj._environment
+    else:
+        raise TypeError()
     return context(env, write = False, inherit = True, buffers = zerocopy)

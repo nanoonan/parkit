@@ -15,22 +15,24 @@ import parkit.constants as constants
 
 from parkit.exceptions import log
 from parkit.profiles import get_lmdb_profiles
-from parkit.storage.lmdbtypes import LMDBProperties
+from parkit.storage.types import LMDBProperties
 from parkit.utility import getenv
 
 logger = logging.getLogger(__name__)
 
-_lock: threading.Lock = threading.Lock()
+_environments_lock: threading.Lock = threading.Lock()
 
 _environments: Dict[
     str,
     Tuple[lmdb.Environment, lmdb._Database, lmdb._Database, lmdb._Database, lmdb._Database]
 ] = {}
 
-_databases: Dict[Union[str, int], lmdb._Database] = {}
+_databases_lock: threading.Lock = threading.Lock()
+
+_databases: Dict[Union[int, str], lmdb._Database] = {}
 
 def close_environments_atexit() -> None:
-    with _lock:
+    with _environments_lock:
         for env, _, _, _, _ in _environments.values():
             try:
                 env.close()
@@ -39,34 +41,36 @@ def close_environments_atexit() -> None:
 
 atexit.register(close_environments_atexit)
 
-def get_database(dbuid: Union[str, int]) -> Optional[lmdb._Database]:
+def get_database_threadsafe(key: Union[int, str]) -> Optional[lmdb._Database]:
     try:
-        return _databases[dbuid]
+        return _databases[key]
     except KeyError:
         return None
 
-def open_database(
+def open_database_threadsafe(
     txn: lmdb.Transaction, env: lmdb.Environment, dbuid: str,
     properties: LMDBProperties, create: bool = False
 ) -> lmdb._Database:
-    assert dbuid not in _databases
-    database = env.open_db(
-        txn = txn, key = dbuid.encode('utf-8'),
-        integerkey = properties['integerkey'] if 'integerkey' in properties else False,
-        dupsort = properties['dupsort'] if 'dupsort' in properties else False,
-        dupfixed = properties['dupfixed'] if 'dupfixed' in properties else False,
-        integerdup = properties['integerdup'] if 'integerdup' in properties else False,
-        reverse_key = properties['reverse_key'] if 'reverse_key' in properties else False,
-        create = create
-    )
-    _databases[dbuid] = database
-    return database
+    with _databases_lock:
+        if dbuid not in _databases:
+            database = env.open_db(
+                txn = txn, key = dbuid.encode('utf-8'),
+                integerkey = properties['integerkey'] if 'integerkey' in properties else False,
+                dupsort = properties['dupsort'] if 'dupsort' in properties else False,
+                dupfixed = properties['dupfixed'] if 'dupfixed' in properties else False,
+                integerdup = properties['integerdup'] if 'integerdup' in properties else False,
+                reverse_key = properties['reverse_key'] if 'reverse_key' in properties else False,
+                create = create
+            )
+            _databases[dbuid] = database
+            _databases[id(database)] = database
+    return _databases[dbuid]
 
 @functools.lru_cache(None)
-def get_environment(namespace: str) -> \
+def get_environment_threadsafe(namespace: str) -> \
 Tuple[lmdb.Environment, lmdb._Database, lmdb._Database, lmdb._Database, lmdb._Database]:
     if namespace not in _environments:
-        with _lock:
+        with _environments_lock:
             if namespace not in _environments:
                 install_path = os.path.abspath(getenv(constants.INSTALL_PATH_ENVNAME))
                 env_path = os.path.join(install_path, *namespace.split('/'))
@@ -107,9 +111,9 @@ Tuple[lmdb.Environment, lmdb._Database, lmdb._Database, lmdb._Database, lmdb._Da
                     key = constants.DESCRIPTOR_DATABASE.encode('utf-8'), integerkey = False
                 )
                 _databases[id(descriptor_db)] = descriptor_db
-                metadata_db = env.open_db(
-                    key = constants.METADATA_DATABASE.encode('utf-8'), integerkey = False
+                attribute_db = env.open_db(
+                    key = constants.ATTRIBUTE_DATABASE.encode('utf-8'), integerkey = False
                 )
-                _databases[id(metadata_db)] = metadata_db
-                _environments[namespace] = (env, name_db, metadata_db, version_db, descriptor_db)
+                _databases[id(attribute_db)] = attribute_db
+                _environments[namespace] = (env, name_db, attribute_db, version_db, descriptor_db)
     return _environments[namespace]

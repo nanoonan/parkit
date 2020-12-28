@@ -1,6 +1,5 @@
 import logging
 import pickle
-import types
 
 from typing import (
     Any, ByteString, Callable, cast
@@ -8,53 +7,56 @@ from typing import (
 
 import parkit.storage.mixins as mixins
 
-from parkit.adapters.metadata import Metadata
-from parkit.adapters.missing import Missing
-from parkit.storage import LMDBObject
+from parkit.storage import (
+    Missing,
+    Object,
+    ObjectMeta
+)
 from parkit.utility import resolve
 
 logger = logging.getLogger(__name__)
 
-QUEUE_INDEX = 0
+class QueueMeta(ObjectMeta):
 
-class Queue(LMDBObject, Metadata):
+    def __initialize_class__(cls):
+        super().__initialize_class__()
+        if isinstance(cls.get, Missing):
+            setattr(cls, 'get', mixins.queue.get(
+                0, cls.decode_value if not isinstance(cls.decode_value, Missing) else \
+                cast(Callable[..., Any], pickle.loads)
+            ))
+        if isinstance(cls.put, Missing):
+            setattr(cls, 'put', mixins.queue.put(
+                0, cls.encode_value if not isinstance(cls.encode_value, Missing) else \
+                cast(Callable[..., Any], pickle.dumps)
+            ))
+        if isinstance(cls.__len__, Missing):
+            setattr(cls, '__len__', mixins.collection.size(0))
+        if isinstance(cls.qsize, Missing):
+            setattr(cls, 'qsize', mixins.collection.size(0))
+
+    def __call__(cls, *args, **kwargs):
+        cls.__initialize_class__()
+        return super().__call__(*args, **kwargs)
+
+class Queue(Object, metaclass = QueueMeta):
 
     def __init__(
-        self, path: str, create: bool = True, bind: bool = True, versioned: bool = False
+        self, path: str, create: bool = True, bind: bool = True
     ) -> None:
         name, namespace = resolve(path, path = True)
-        LMDBObject.__init__(
-            self, name, properties = [{'integerkey':True}], namespace = namespace,
-            create = create, bind = bind, versioned = versioned,
-        )
-        Metadata.__init__(self)
-
-    def __len__(self) -> int:
-        return self.qsize()
-
-    def _bind(self, *args: Any) -> None:
-        Metadata._bind(self, self.encode_key, self.encode_value, self.decode_value)
-        setattr(self, 'get', types.MethodType(mixins.queue.get(
-            QUEUE_INDEX,
-            self.decode_value if not isinstance(self.decode_value, Missing) else \
-            cast(Callable[..., Any], pickle.loads)
-        ), self))
-        setattr(self, 'put', types.MethodType(mixins.queue.put(
-            QUEUE_INDEX,
-            self.encode_value if not isinstance(self.encode_value, Missing) else \
-            cast(Callable[..., ByteString], pickle.dumps)
-        ), self))
-        setattr(
-            self, 'qsize', types.MethodType(mixins.collection.size(QUEUE_INDEX), self)
+        super().__init__(
+            name, properties = [{'integerkey':True}], namespace = namespace,
+            create = create, bind = bind
         )
 
     get: Callable[..., Any] = Missing()
 
-    put: Callable[..., bool] = Missing()
+    put: Callable[..., None] = Missing()
+
+    __len__: Callable[..., int] = Missing()
 
     qsize: Callable[..., int] = Missing()
-
-    encode_key: Callable[..., ByteString] = Missing()
 
     decode_value: Callable[..., Any] = Missing()
 

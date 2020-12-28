@@ -8,7 +8,6 @@ from typing import (
 import parkit.storage.threadlocal as thread
 
 from parkit.storage.context import context
-from parkit.storage.lmdbapi import LMDBAPI
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +20,7 @@ def iterate(
 ) -> Callable[..., Union[Any, Tuple[Any, Any]]]:
 
     def _iterate(
-        self: LMDBAPI,
+        self,
         transaction: bool = False,
         isolated: bool = False,
         zerocopy: bool = False,
@@ -34,7 +33,7 @@ def iterate(
         with context(
             self._environment, write = transaction, inherit = not isolated, buffers = zerocopy
         ):
-            cursor = thread.local.cursors[self._user_dbuid[db0]]
+            cursor = thread.local.cursors[id(self._user_db[db0])]
             if not cursor.first():
                 return
             while True:

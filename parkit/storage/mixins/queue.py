@@ -9,7 +9,6 @@ from typing import (
 import parkit.storage.threadlocal as thread
 
 from parkit.exceptions import abort
-from parkit.storage.lmdbapi import LMDBAPI
 
 logger = logging.getLogger(__name__)
 
@@ -20,13 +19,13 @@ def get(
 ) -> Callable[..., Any]:
 
     def _get(
-        self: LMDBAPI,
+        self,
         fifo: bool = fifo,
         decode_value: Optional[Callable[..., Any]] = decode_value
     ) -> Any:
         try:
             txn = None
-            cursor = thread.local.cursors[self._user_dbuid[db0]]
+            cursor = thread.local.cursors[id(self._user_db[db0])]
             if not cursor:
                 txn = self._environment.begin(write = True)
                 cursor = txn.cursor(db = self._user_db[db0])
@@ -58,14 +57,14 @@ def put(
 ) -> Callable[..., None]:
 
     def _put(
-        self: LMDBAPI,
+        self,
         value: Any,
         encode_value: Optional[Callable[..., ByteString]] = encode_value
     ) -> None:
         value = encode_value(value) if encode_value else value
         try:
             txn = None
-            cursor = thread.local.cursors[self._user_dbuid[db0]]
+            cursor = thread.local.cursors[id(self._user_db[db0])]
             if not cursor:
                 txn = self._environment.begin(write = True)
                 cursor = txn.cursor(db = self._user_db[db0])

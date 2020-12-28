@@ -1,5 +1,5 @@
 from typing import (
-	Any, Dict, Tuple
+    Any, Dict, Tuple
 )
 
 class Missing():
