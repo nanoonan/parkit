@@ -22,7 +22,7 @@ class QueueMeta(ObjectMeta):
         super().__initialize_class__()
         if isinstance(cls.get, Missing):
             setattr(cls, 'get', mixins.queue.get(
-                0, cls.decode_value if not isinstance(cls.decode_value, Missing) else \
+                0, True, cls.decode_value if not isinstance(cls.decode_value, Missing) else \
                 cast(Callable[..., Any], pickle.loads)
             ))
         if isinstance(cls.put, Missing):
@@ -34,6 +34,8 @@ class QueueMeta(ObjectMeta):
             setattr(cls, '__len__', mixins.collection.size(0))
         if isinstance(cls.qsize, Missing):
             setattr(cls, 'qsize', mixins.collection.size(0))
+        if isinstance(cls.clear, Missing):
+            setattr(cls, 'clear', mixins.collection.clear(0))
 
     def __call__(cls, *args, **kwargs):
         cls.__initialize_class__()
@@ -55,6 +57,8 @@ class Queue(Object, metaclass = QueueMeta):
     put: Callable[..., None] = Missing()
 
     __len__: Callable[..., int] = Missing()
+
+    clear: Callable[..., None] = Missing()
 
     qsize: Callable[..., int] = Missing()
 

@@ -1,24 +1,12 @@
 import logging
 import os
 
-from typing import (
-    Any, Optional
-)
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
 class ParkitError(RuntimeError):
-
-    def __init__(self, obj: Any = None) -> None:
-        if obj:
-            if isinstance(obj, str):
-                super().__init__(obj)
-            elif issubclass(type(obj), BaseException):
-                self._wrapped: BaseException = obj
-
-    @property
-    def caught(self) -> BaseException:
-        return self._wrapped
+    pass
 
 class TransactionError(ParkitError):
     pass
@@ -42,7 +30,7 @@ def abort(exc_value: Optional[BaseException] = None) -> None:
 def log(exc_value: BaseException) -> None:
     if not issubclass(type(exc_value), ParkitError):
         if not isinstance(exc_value, (SystemExit, KeyboardInterrupt, GeneratorExit)):
-            logger.exception('Trapped error')
+            logger.exception('Trapped error on pid %i', os.getpid())
 
 def log_and_raise(exc_value: BaseException, exc_type: type = None) -> None:
     if not issubclass(type(exc_value), ParkitError):
@@ -50,6 +38,6 @@ def log_and_raise(exc_value: BaseException, exc_type: type = None) -> None:
             raise exc_value
         logger.exception('Trapped error on pid %i', os.getpid())
         if exc_type is None:
-            raise ParkitError(exc_value)
-        raise exc_type(exc_value)
+            raise ParkitError() from exc_value
+        raise exc_type() from exc_value
     raise exc_value

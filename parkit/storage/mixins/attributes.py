@@ -82,9 +82,13 @@ def delete(
                 txn = self._environment.begin(write = True)
             obj_uuid = txn.get(key = self._encoded_name, db = self._name_db)
             if obj_uuid == self._uuid_bytes:
-                txn.delete(key = key, db = self._attribute_db)
+                result = txn.delete(key = key, db = self._attribute_db)
                 if implicit:
+                    if result and self._versioned:
+                        self.increment_version(use_transaction = txn)
                     txn.commit()
+                elif self._versioned:
+                    thread.local.changed.add(self)
             else:
                 raise ObjectNotFoundError()
         except BaseException as exc:
@@ -125,7 +129,11 @@ def put(
                     db = self._attribute_db
                 )
                 if implicit:
+                    if result and self._versioned:
+                        self.increment_version(use_transaction = txn)
                     txn.commit()
+                elif self._versioned:
+                    thread.local.changed.add(self)
             else:
                 raise ObjectNotFoundError()
         except BaseException as exc:

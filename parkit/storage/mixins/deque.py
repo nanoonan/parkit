@@ -12,56 +12,65 @@ from parkit.exceptions import abort
 
 logger = logging.getLogger(__name__)
 
-def get(
-    db0: int, fifo: bool,
+def pop(
+    db0: int, db1: int, left: bool,
     decode_value: Callable[..., Any]
 ) -> Callable[..., Any]:
 
-    def _get(
+    def _pop(
         self,
-        fifo: bool = fifo,
         decode_value: Optional[Callable[..., Any]] = decode_value
     ) -> Any:
         try:
-            txn = cursor = None
-            cursor = thread.local.cursors[id(self._user_db[db0])]
-            if not cursor:
+            implicit = False
+            cursor = None
+            txn = thread.local.transaction
+            if not txn:
+                implicit = True
                 txn = self._environment.begin(write = True)
-                cursor = txn.cursor(db = self._user_db[db0])
+            if left:
+                last, database = (True, self._user_db[db0]) \
+                if txn.stat(self._user_db[db0])['entries'] else (False, self._user_db[db1])
+            else:
+                last, database = (True, self._user_db[db1]) \
+                if txn.stat(self._user_db[db1])['entries'] else (False, self._user_db[db0])
 
-            result = cursor.pop(cursor.key()) \
-            if (cursor.first() if fifo else cursor.last()) else None
+            cursor = txn.cursor(db = database) if implicit else thread.local.cursors[id(database)]
 
-            if txn:
+            result = cursor.pop(cursor.key()) if \
+            (cursor.last() if last else cursor.first()) else None
+
+            if implicit:
                 txn.commit()
         except BaseException as exc:
-            if txn:
+            if implicit:
                 txn.abort()
             abort(exc)
         finally:
-            if txn and cursor:
+            if implicit and cursor:
                 cursor.close()
         return decode_value(result) if result is not None and decode_value else result
 
-    return _get
+    return _pop
 
-def put(
-    db0: int,
+def append(
+    db0: int, db1: int, left: bool,
     encode_value: Callable[..., ByteString]
 ) -> Callable[..., None]:
 
-    def _put(
+    def _append(
         self,
         value: Any,
-        encode_value: Optional[Callable[..., ByteString]] = encode_value
+        encode_value: Optional[Callable[..., ByteString]] = encode_value,
     ) -> None:
         value = encode_value(value) if encode_value else value
         try:
             txn = cursor = None
-            cursor = thread.local.cursors[id(self._user_db[db0])]
+            database = self._user_db[db0] if left else self._user_db[db1]
+            cursor = thread.local.cursors[id(database)]
             if not cursor:
                 txn = self._environment.begin(write = True)
-                cursor = txn.cursor(db = self._user_db[db0])
+                cursor = txn.cursor(db = database)
             if not cursor.last():
                 key = struct.pack('@N', 0)
             else:
@@ -77,4 +86,4 @@ def put(
             if txn and cursor:
                 cursor.close()
 
-    return _put
+    return _append

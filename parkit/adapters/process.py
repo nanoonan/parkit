@@ -2,25 +2,21 @@
 import logging
 
 from typing import (
-    Any, ByteString, Callable, cast, Dict, Optional, Tuple
+    Any, Callable, cast, Dict, Optional, Tuple
 )
 
 import cloudpickle
 import psutil
 
+import parkit.adapters.dict as adapters_dict
 import parkit.constants as constants
 import parkit.storage.mixins as mixins
 
-from parkit.adapters.attribute import (
-    Attr,
-    Attributes
-)
 from parkit.adapters.queue import Queue
 from parkit.pool import terminate_node
 from parkit.storage import (
     Missing,
     Object,
-    ObjectMeta,
     snapshot,
     transaction
 )
@@ -32,7 +28,7 @@ from parkit.utility import (
 
 logger = logging.getLogger(__name__)
 
-class ProcessMeta(ObjectMeta):
+class ProcessMeta(adapters_dict.DictMeta):
 
     def __initialize_class__(cls):
         super().__initialize_class__()
@@ -55,15 +51,7 @@ class ProcessMeta(ObjectMeta):
         cls.__initialize_class__()
         return super().__call__(*args, **kwargs)
 
-class Process(Attributes, Object, metaclass = ProcessMeta):
-
-    pid = Attr(readonly = True)
-    error = Attr(readonly = True)
-    node_uid = Attr(readonly = True)
-    result = Attr(readonly = True)
-    target = Attr(readonly = True)
-    args = Attr(readonly = True)
-    kwargs = Attr(readonly = True)
+class Process(adapters_dict.Dict, metaclass = ProcessMeta):
 
     def __init__(
         self, path: str, create: bool = True, bind: bool = True, versioned: bool = False,
@@ -94,11 +82,38 @@ class Process(Attributes, Object, metaclass = ProcessMeta):
         elif namespace and not namespace.startswith(constants.PROCESS_NAMESPACE):
             name = '/'.join([namespace, name])
 
-        Attributes.__init__(self)
         Object.__init__(
-            self, name, properties = [], namespace = constants.PROCESS_NAMESPACE,
-            create = create, bind = bind, on_create = on_create
+            self, name, properties = [{}], namespace = constants.PROCESS_NAMESPACE,
+            create = create, bind = bind, versioned = versioned, on_create = on_create
         )
+
+    @property
+    def pid(self):
+        return self._get('pid')
+
+    @property
+    def error(self):
+        return self._get('error')
+
+    @property
+    def node_uid(self):
+        return self._get('node_uid')
+
+    @property
+    def result(self):
+        return self._get('result')
+
+    @property
+    def target(self):
+        return self._get('target')
+
+    @property
+    def args(self):
+        return self._get('args')
+
+    @property
+    def kwargs(self):
+        return self._get('kwargs')
 
     @property
     def status(self) -> str:
@@ -122,10 +137,8 @@ class Process(Attributes, Object, metaclass = ProcessMeta):
                     terminate_node(self.node_uid, cluster_uid)
             except FileNotFoundError:
                 pass
-            super().drop()
+            Object.drop(self)
 
-    encode_key: Callable[..., ByteString] = Missing()
+    _get: Callable[..., Any] = Missing()
 
-    decode_value: Callable[..., Any] = Missing()
-
-    encode_value: Callable[..., ByteString] = Missing()
+    _put: Callable[..., None] = Missing()

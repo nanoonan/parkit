@@ -11,4 +11,3 @@ class ObjectMeta(type):
     def __call__(cls, *args, **kwargs):
         cls.__initialize_class__()
         return super().__call__(*args, **kwargs)
-

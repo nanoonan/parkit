@@ -9,7 +9,7 @@ from parkit.exceptions import abort
 
 logger = logging.getLogger(__name__)
 
-def clear(db0: int) -> Callable[..., None]:
+def clear(*dbs: int) -> Callable[..., None]:
 
     def _clear(self) -> None:
         try:
@@ -18,7 +18,8 @@ def clear(db0: int) -> Callable[..., None]:
             if not txn:
                 implicit = True
                 txn = self._environment.begin(write = True)
-            txn.drop(self._user_db[db0], delete = False)
+            for index in dbs:
+                txn.drop(self._user_db[index], delete = False)
             if implicit:
                 if self._versioned:
                     self.increment_version(use_transaction = txn)
@@ -32,7 +33,7 @@ def clear(db0: int) -> Callable[..., None]:
 
     return _clear
 
-def size(db0: int) -> Callable[..., int]:
+def size(*dbs: int) -> Callable[..., int]:
 
     def _size(self) -> int:
         try:
@@ -41,7 +42,7 @@ def size(db0: int) -> Callable[..., int]:
             if not txn:
                 implicit = True
                 txn = self._environment.begin()
-            result = txn.stat(self._user_db[db0])['entries']
+            result = sum([txn.stat(self._user_db[index])['entries'] for index in dbs])
             if implicit:
                 txn.commit()
         except BaseException as exc:

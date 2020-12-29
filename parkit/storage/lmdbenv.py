@@ -62,8 +62,8 @@ def open_database_threadsafe(
                 reverse_key = properties['reverse_key'] if 'reverse_key' in properties else False,
                 create = create
             )
-            _databases[dbuid] = database
             _databases[id(database)] = database
+            _databases[dbuid] = database
     return _databases[dbuid]
 
 @functools.lru_cache(None)

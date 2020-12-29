@@ -1,6 +1,7 @@
 
 from parkit.adapters import (
 	Attr,
+	Deque,
 	Dict,
 	Process,
 	Queue,
