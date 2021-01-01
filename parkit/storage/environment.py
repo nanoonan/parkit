@@ -15,7 +15,7 @@ import parkit.constants as constants
 
 from parkit.exceptions import log
 from parkit.profiles import get_lmdb_profiles
-from parkit.storage.types import LMDBProperties
+from parkit.types import LMDBProperties
 from parkit.utility import getenv
 
 logger = logging.getLogger(__name__)
@@ -88,16 +88,16 @@ Tuple[lmdb.Environment, lmdb._Database, lmdb._Database, lmdb._Database, lmdb._Da
                     profile = get_lmdb_profiles()['volatile']
                 env = lmdb.open(
                     env_path, subdir = True, create = True,
-                    writemap = profile[constants.LMDB_WRITE_MAP_ENVNAME],
-                    metasync = profile[constants.LMDB_METASYNC_ENVNAME],
-                    map_async = profile[constants.LMDB_MAP_ASYNC_ENVNAME],
-                    map_size = profile[constants.LMDB_MAP_SIZE_ENVNAME],
-                    max_dbs = profile[constants.LMDB_MAX_DBS_ENVNAME],
-                    max_spare_txns = profile[constants.LMDB_MAX_SPARE_TXNS_ENVNAME],
-                    max_readers = profile[constants.LMDB_MAX_READERS_ENVNAME],
-                    readonly = profile[constants.LMDB_READONLY_ENVNAME],
-                    sync = profile[constants.LMDB_SYNC_ENVNAME],
-                    meminit = profile[constants.LMDB_MEMINIT_ENVNAME]
+                    writemap = profile['LMDB_WRITE_MAP'],
+                    metasync = profile['LMDB_METASYNC'],
+                    map_async = profile['LMDB_MAP_ASYNC'],
+                    map_size = profile['LMDB_MAP_SIZE'],
+                    max_dbs = profile['LMDB_MAX_DBS'],
+                    max_spare_txns = profile['LMDB_MAX_SPARE_TXNS'],
+                    max_readers = profile['LMDB_MAX_READERS'],
+                    readonly = profile['LMDB_READONLY'],
+                    sync = profile['LMDB_SYNC'],
+                    meminit = profile['LMDB_MEMINIT']
                 )
                 name_db = env.open_db(
                     key = constants.NAME_DATABASE.encode('utf-8'), integerkey = False

@@ -1,25 +1,24 @@
-# pylint: disable = broad-except, protected-access
+# pylint: disable = broad-except
 import logging
-
-from typing import Callable
 
 import parkit.storage.threadlocal as thread
 
+from parkit.adapters.object import Object
 from parkit.exceptions import abort
 
 logger = logging.getLogger(__name__)
 
-def clear(*dbs: int) -> Callable[..., None]:
+class Sized(Object):
 
-    def _clear(self) -> None:
+    def clear(self) -> None:
         try:
             implicit = False
             txn = thread.local.transaction
             if not txn:
                 implicit = True
                 txn = self._environment.begin(write = True)
-            for index in dbs:
-                txn.drop(self._user_db[index], delete = False)
+            for database in self._user_db:
+                txn.drop(database, delete = False)
             if implicit:
                 if self._versioned:
                     self.increment_version(use_transaction = txn)
@@ -27,28 +26,22 @@ def clear(*dbs: int) -> Callable[..., None]:
             elif self._versioned:
                 thread.local.changed.add(self)
         except BaseException as exc:
-            if txn and implicit:
+            if implicit and txn:
                 txn.abort()
             abort(exc)
 
-    return _clear
-
-def size(*dbs: int) -> Callable[..., int]:
-
-    def _size(self) -> int:
+    def __len__(self) -> int:
         try:
             implicit = False
             txn = thread.local.transaction
             if not txn:
                 implicit = True
                 txn = self._environment.begin()
-            result = sum([txn.stat(self._user_db[index])['entries'] for index in dbs])
+            result = sum([txn.stat(database)['entries'] for database in self._user_db])
             if implicit:
                 txn.commit()
         except BaseException as exc:
-            if txn and implicit:
+            if implicit and txn:
                 txn.abort()
             abort(exc)
         return result
-
-    return _size

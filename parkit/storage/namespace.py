@@ -4,14 +4,15 @@ import os
 from typing import (
     Iterator, Optional
 )
+
 import parkit.constants as constants
 import parkit.storage.threadlocal as thread
 
 from parkit.storage.context import context
-from parkit.storage.lmdbenv import get_environment_threadsafe
+from parkit.storage.environment import get_environment_threadsafe
 from parkit.utility import (
     getenv,
-    resolve
+    resolve_namespace
 )
 
 logger = logging.getLogger(__name__)
@@ -24,7 +25,7 @@ def namespaces() -> Iterator[str]:
             )
 
 def paths(namespace: Optional[str] = None) -> Iterator[str]:
-    namespace = resolve(namespace, path = False) if namespace else constants.DEFAULT_NAMESPACE
+    namespace = resolve_namespace(namespace) if namespace else constants.DEFAULT_NAMESPACE
     env, name_db, _, _, _ = get_environment_threadsafe(namespace)
     with context(env, write = False, inherit = True, buffers = False):
         cursor = thread.local.cursors[id(name_db)]
@@ -33,6 +34,6 @@ def paths(namespace: Optional[str] = None) -> Iterator[str]:
                 result = cursor.key()
                 name = bytes(result).decode('utf-8') if isinstance(result, memoryview) else \
                 result.decode('utf-8')
-                yield '/'.join([namespace, name])
+                yield '/'.join([namespace, name]) if namespace else name
                 if not cursor.next():
                     return

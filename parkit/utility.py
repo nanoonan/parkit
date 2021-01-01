@@ -1,3 +1,5 @@
+# pylint: disable = c-extension-no-member
+import ast
 import distutils.util
 import functools
 import gc
@@ -10,9 +12,29 @@ import sys
 import time
 import types
 
+from typing import (
+    Any, Callable, Dict, Generator, List, Optional, Tuple
+)
+
+import mmh3
+
+import parkit.constants as constants
+
+from parkit.exceptions import TimeoutError
+
 logger = logging.getLogger(__name__)
 
-def get_memory_size(target):
+def compile_function(
+    code: str,
+    *args: str,
+    globals_dict = Dict[str, Any]
+) -> Callable[..., Any]:
+    module_ast = ast.parse(code.format(*args))
+    module_code = compile(module_ast, '__dynamic__', 'exec')
+    function_code = [c__ for c__ in module_code.co_consts if isinstance(c__, types.CodeType)][0]
+    return types.FunctionType(function_code, globals_dict)
+
+def get_memory_size(target: Any) -> int:
     if isinstance(target, (type, types.ModuleType, types.FunctionType)):
         raise TypeError()
     seen_ids = set()
@@ -30,18 +52,17 @@ def get_memory_size(target):
     return size
 
 @functools.lru_cache(None)
-def create_class(qualified_class_name):
+def create_class(qualified_class_name: str) -> type:
     module_path, class_name = qualified_class_name.rsplit('.', 1)
     module = importlib.import_module(module_path)
     return getattr(module, class_name)
 
-def get_qualified_class_name(obj):
+def get_qualified_class_name(obj: Any) -> str:
     if isinstance(obj, type):
         return obj.__module__ + '.' + obj.__name__
     return obj.__class__.__module__ + '.' + obj.__class__.__name__
 
-@functools.lru_cache(None)
-def getenv(name, vartype = None):
+def getenv(name: str, vartype: Optional[type] = None) -> Any:
     name = str(name)
     value = os.getenv(name)
     if value is None:
@@ -54,7 +75,7 @@ def getenv(name, vartype = None):
         return type(value)
     raise TypeError()
 
-def checkenv(name, vartype):
+def checkenv(name: str, vartype: type) -> bool:
     if vartype is bool:
         if not getenv(name).upper() == 'FALSE' and not getenv(name).upper() == 'TRUE':
             raise TypeError('Environment variable {0} has wrong type'.format(name))
@@ -65,56 +86,78 @@ def checkenv(name, vartype):
             raise TypeError('Environment variable has {0} wrong type'.format(name)) from exc
     return True
 
-def envexists(name):
+def envexists(name: str) -> bool:
     return os.getenv(str(name)) is not None
 
-def setenv(name, value):
+def setenv(name: str, value: str) -> None:
     os.environ[str(name)] = str(value)
 
 @functools.lru_cache(None)
-def resolve(obj: str, path: bool = True):
-    segments = [segment for segment in obj.split('/') if len(segment)]
-    if not path:
-        if all([
-            segment.isascii() and segment.replace('_', '').replace('-', '').isalnum()
-            for segment in segments
-        ]):
-            return None if not segments else '/'.join(segments)
-        raise ValueError('Namespace does not follow naming rules')
+def resolve_path(path: str) -> Tuple[str, Optional[str]]:
+    segments = [segment for segment in path.split('/') if len(segment)]
     if segments and \
     all([
         segment.isascii() and segment.replace('_', '').replace('-', '').isalnum()
         for segment in segments
     ]):
-        return (
-            segments[0], None) if len(segments) == 1 \
-            else (segments[-1], '/'.join(segments[0:-1])
-        )
+        return \
+        (segments[0], None) if len(segments) == 1 else \
+        (segments[-1], '/'.join(segments[0:-1]))
     raise ValueError('Path does not follow naming rules')
 
-def create_string_digest(*segments):
-    return hashlib.sha1(''.join([str(segment) for segment in segments]).encode('utf-8')).hexdigest()
-    # return mmh3.hash128(encoded_value, MMH3Hasher.MMH3_SEED, True, signed = False)
+@functools.lru_cache(None)
+def resolve_namespace(namespace: Optional[str]) -> Optional[str]:
+    if not namespace:
+        return namespace
+    segments = [segment for segment in namespace.split('/') if len(segment)]
+    if all([
+        segment.isascii() and segment.replace('_', '').replace('-', '').isalnum()
+        for segment in segments
+    ]):
+        return None if not segments else '/'.join(segments)
+    raise ValueError('Namespace does not follow naming rules')
 
-def polling_loop(interval, max_iterations = None, initial_offset = None):
+def create_string_digest(*segments: Any) -> str:
+    return hashlib.sha1(
+        ''.join([str(segment) for segment in segments]).encode('utf-8')
+    ).hexdigest()
+
+def mmh3_hash(encoded: bytes) -> int:
+    return mmh3.hash128(encoded, constants.MMH3_SEED, True, signed = False)
+
+def polling_loop(
+    interval: float,
+    max_iterations: Optional[int] = None,
+    initial_offset: Optional[float] = None,
+    timeout: Optional[float] = None
+) -> Generator[int, None, None]:
+    interval = interval if interval is None or interval > 0 else 0
+    max_iterations = max_iterations if max_iterations is None or max_iterations > 0 else 0
+    if timeout is not None and timeout <= 0:
+        raise TimeoutError()
     iteration = 0
+    start_ns = None
     try:
         while True:
-            start_ns = time.time_ns()
-            yield iteration
-            iteration += 1
             if max_iterations is not None and iteration == max_iterations:
                 return
+            loop_start_ns = time.time_ns()
+            start_ns = loop_start_ns if start_ns is None else start_ns
+            yield iteration
+            iteration += 1
+            now = time.time_ns()
             if iteration == 1 and initial_offset is not None:
-                sleep_duration = interval - ((time.time_ns() - start_ns - initial_offset) / 1e9)
+                sleep_duration = interval - ((now - loop_start_ns - initial_offset) / 1e9)
             else:
-                sleep_duration = interval - ((time.time_ns() - start_ns) / 1e9)
+                sleep_duration = interval - ((now - loop_start_ns) / 1e9)
+            if timeout is not None and now + sleep_duration - start_ns >= timeout * 1e9:
+                raise TimeoutError()
             if sleep_duration > 0:
                 time.sleep(sleep_duration)
     except GeneratorExit:
         pass
 
-def get_calling_modules():
+def get_calling_modules() -> List[str]:
     modules = []
     frame = inspect.currentframe()
     while frame:
@@ -129,21 +172,26 @@ def get_calling_modules():
 
 class HighResolutionTimer():
 
-    def __init__(self):
-        self.start_ns = None
+    def __init__(self) -> None:
+        self.start_ns = 0
 
-    def start(self):
+    def start(self) -> None:
         self.start_ns = time.time_ns()
 
-    def stop(self):
+    def stop(self) -> None:
         elapsed = time.time_ns() - self.start_ns
         print('elapsed: {0} ms'.format(elapsed / 1e6))
 
-    def __enter__(self):
+    def __enter__(self) -> Any:
         self.start()
         return self
 
-    def __exit__(self, exc_type, exc_value, exc_traceback):
+    def __exit__(
+        self,
+        exc_type: type,
+        exc_value: Any,
+        exc_traceback: Any
+    ) -> None:
         self.stop()
         if exc_value is not None:
             raise exc_value

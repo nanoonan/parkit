@@ -1,4 +1,4 @@
-# pylint: disable = W0703, W0212, C0103
+# pylint: disable = invalid-name, broad-except, unused-import
 import logging
 import os
 import platform
@@ -6,6 +6,9 @@ import sys
 import uuid
 
 import daemoniker
+
+import parkit.constants as constants
+import parkit.logging
 
 from parkit.pool.commands import (
     create_pid_filepath,
@@ -19,18 +22,6 @@ from parkit.utility import (
 )
 
 logger = logging.getLogger(__name__)
-
-# FIXME
-
-logging.basicConfig(
-    format = '[%(asctime)s] %(name)s : %(message)s',
-    level = logging.ERROR,
-    handlers = [
-        logging.FileHandler(
-            os.path.join('C:\\users\\rdpuser\\Desktop\\logs', 'python.log')
-        )
-    ]
-)
 
 if __name__ == '__main__':
 
@@ -66,7 +57,10 @@ if __name__ == '__main__':
         if platform.system() == 'Windows':
             del os.environ['__INVOKE_DAEMON__']
 
-        for _ in polling_loop(monitor_polling_interval):
+        for _ in polling_loop(
+            monitor_polling_interval if monitor_polling_interval is not None else \
+            constants.DEFAULT_MONITOR_POLLING_INTERVAL
+        ):
             running = scan_nodes(cluster_uid if cluster_uid else 'default')
             taskers = [node_uid for node_uid, _ in running if node_uid != 'monitor']
             cluster_size = cluster_size if cluster_size else 0

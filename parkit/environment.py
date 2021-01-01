@@ -3,6 +3,10 @@ import multiprocessing
 import os
 import tempfile
 
+from typing import (
+    cast, Optional
+)
+
 import parkit.constants as constants
 
 from parkit.pool import (
@@ -21,15 +25,15 @@ from parkit.utility import (
 
 logger = logging.getLogger(__name__)
 
-def is_pool_started():
+def is_pool_started() -> bool:
     cluster_uid = create_string_digest(getenv(constants.INSTALL_PATH_ENVNAME))
     return len(scan_nodes(cluster_uid)) > 0
 
 def start_pool(
-    size = multiprocessing.cpu_count(),
-    monitor_polling_interval = constants.DEFAULT_MONITOR_POLLING_INTERVAL,
-    tasker_polling_interval = constants.DEFAULT_TASKER_POLLING_INTERVAL
-):
+    size: int = multiprocessing.cpu_count(),
+    monitor_polling_interval: float = constants.DEFAULT_MONITOR_POLLING_INTERVAL,
+    tasker_polling_interval: float = constants.DEFAULT_TASKER_POLLING_INTERVAL
+) -> bool:
     cluster_uid = create_string_digest(getenv(constants.INSTALL_PATH_ENVNAME))
     running = scan_nodes(cluster_uid)
     if [node_uid for node_uid, _ in running if node_uid == 'monitor']:
@@ -41,31 +45,35 @@ def start_pool(
     )
     return True
 
-def stop_pool():
+def stop_pool() -> bool:
     cluster_uid = create_string_digest(getenv(constants.INSTALL_PATH_ENVNAME))
     terminate_all_nodes(cluster_uid)
     return True
 
-def _set_environment(install_path = None):
-    if install_path is None:
-        install_path = os.getenv(constants.INSTALL_PATH_ENVNAME)
-    install_path = os.path.abspath(install_path)
-    if os.path.exists(install_path):
-        if not os.path.isdir(install_path):
+def _set_environment(install_path: Optional[str] = None) -> None:
+    path = cast(
+        str,
+        os.getenv(constants.INSTALL_PATH_ENVNAME) if not install_path else install_path
+    )
+    path = os.path.abspath(path)
+    if os.path.exists(path):
+        if not os.path.isdir(path):
             raise ValueError('Install_path is not a directory')
     else:
-        os.makedirs(install_path)
+        os.makedirs(path)
     for name, default in get_lmdb_profiles()['persistent'].copy().items():
         if envexists(name):
             if checkenv(name, type(default)):
-                get_lmdb_profiles()['persistent'][name] = getenv(name, type(default))
-    setenv(constants.INSTALL_PATH_ENVNAME, install_path)
+                cast(dict, get_lmdb_profiles())['persistent'][name] = getenv(name, type(default))
+    setenv(constants.INSTALL_PATH_ENVNAME, path)
 
 if envexists(constants.INSTALL_PATH_ENVNAME):
     _set_environment(install_path = getenv(constants.INSTALL_PATH_ENVNAME))
 else:
     try:
-        os.makedirs(os.path.join(tempfile.gettempdir(), constants.PARKIT_TEMP_INSTALLATION_DIRNAME))
+        os.makedirs(
+            os.path.join(tempfile.gettempdir(), constants.PARKIT_TEMP_INSTALLATION_DIRNAME)
+        )
     except FileExistsError:
         pass
     _set_environment(

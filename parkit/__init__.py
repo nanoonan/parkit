@@ -1,11 +1,11 @@
 
 from parkit.adapters import (
 	Attr,
-	Deque,
 	Dict,
+	Log,
+	Object,
 	Process,
-	Queue,
-	Shareable
+	Queue
 )
 from parkit.environment import (
 	is_pool_started,
@@ -13,6 +13,8 @@ from parkit.environment import (
 	stop_pool
 )
 from parkit.storage import (
+	Entity,
+	EntityMeta,
 	namespaces,
 	paths,
 	snapshot,
@@ -25,7 +27,6 @@ from parkit.exceptions import (
 	TransactionError
 )
 
-#
-#
+import parkit.logging
 
-from parkit.utility import *
+from parkit.logging import syslog

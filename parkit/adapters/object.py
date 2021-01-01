@@ -1,8 +1,9 @@
-# pylint: disable = broad-except, protected-access
+# pylint: disable = broad-except, using-constant-test
 import logging
+import pickle
 
 from typing import (
-    Any, ByteString, Callable, Optional
+    Any, ByteString, Callable, cast, Optional
 )
 
 import parkit.storage.threadlocal as thread
@@ -11,27 +12,33 @@ from parkit.exceptions import (
     abort,
     ObjectNotFoundError
 )
+from parkit.storage import Entity
 
 logger = logging.getLogger(__name__)
 
-def get(
-    encode_key: Callable[..., ByteString],
-    decode_value: Callable[..., Any]
-) -> Callable[..., Any]:
+class Object(Entity):
 
-    def _get(
+    encode_attrkey: Callable[..., ByteString] = \
+    cast(Callable[..., ByteString], staticmethod(pickle.dumps))
+
+    encode_attrval: Callable[..., ByteString] = \
+    cast(Callable[..., ByteString], staticmethod(pickle.dumps))
+
+    decode_attrval: Callable[..., Any] = \
+    cast(Callable[..., Any], staticmethod(pickle.loads))
+
+    def _getattr(
         self,
-        key: Any,
-        encode_key: Optional[Callable[..., ByteString]] = encode_key,
-        decode_value: Optional[Callable[..., Any]] = decode_value
+        key: Any
     ) -> Any:
+        if key is not None:
+            key = self.encode_attrkey(key) if self.encode_attrkey else key
+            key = b''.join([self._uuid_bytes, key])
+        else:
+            key = self._uuid_bytes
         try:
-            if key is not None:
-                key = key if not encode_key else encode_key(key)
-                key = b''.join([self._uuid_bytes, key])
-            else:
-                key = self._uuid_bytes
             implicit = False
+            cursor = None
             txn = thread.local.transaction
             if not txn:
                 implicit = True
@@ -45,36 +52,29 @@ def get(
                     result = cursor.value()
                 else:
                     result = None
-                if txn and implicit:
+                if implicit:
                     txn.commit()
             else:
                 raise ObjectNotFoundError()
         except BaseException as exc:
-            if txn and implicit:
+            if implicit and txn:
                 txn.abort()
             abort(exc)
         finally:
             if implicit and cursor:
                 cursor.close()
-        return decode_value(result) if result is not None and decode_value else result
+        return self.decode_attrval(result) if result is not None and self.decode_attrval else result
 
-    return _get
-
-def delete(
-    encode_key: Callable[..., ByteString]
-) -> Callable[..., Any]:
-
-    def _delete(
+    def _delattr(
         self,
-        key: Any,
-        encode_key: Optional[Callable[..., ByteString]] = encode_key
+        key: Any
     ) -> None:
+        if key is not None:
+            key = self.encode_attrkey(key) if self.encode_attrkey else key
+            key = b''.join([self._uuid_bytes, key])
+        else:
+            key = self._uuid_bytes
         try:
-            if key is not None:
-                key = key if not encode_key else encode_key(key)
-                key = b''.join([self._uuid_bytes, key])
-            else:
-                key = self._uuid_bytes
             implicit = False
             txn = thread.local.transaction
             if not txn:
@@ -92,31 +92,22 @@ def delete(
             else:
                 raise ObjectNotFoundError()
         except BaseException as exc:
-            if txn and implicit:
+            if implicit and txn:
                 txn.abort()
             abort(exc)
 
-    return _delete
-
-def put(
-    encode_key: Callable[..., ByteString],
-    encode_value: Callable[..., ByteString]
-):
-
-    def _put(
+    def _putattr(
         self,
         key: Any,
-        value: Any,
-        encode_key: Optional[Callable[..., ByteString]] = encode_key,
-        encode_value: Optional[Callable[..., ByteString]] = encode_value
+        value: Any
     ):
+        if key is not None:
+            key = self.encode_attrkey(key) if self.encode_attrkey else key
+            key = b''.join([self._uuid_bytes, key])
+        else:
+            key = self._uuid_bytes
+        value = self.encode_attrval(value) if self.encode_attrval else value
         try:
-            if key is not None:
-                key = key if not encode_key else encode_key(key)
-                key = b''.join([self._uuid_bytes, key])
-            else:
-                key = self._uuid_bytes
-            value = value if not encode_value else encode_value(value)
             implicit = False
             txn = thread.local.transaction
             if not txn:
@@ -129,7 +120,7 @@ def put(
                     db = self._attribute_db
                 )
                 if implicit:
-                    if result and self._versioned:
+                    if self._versioned:
                         self.increment_version(use_transaction = txn)
                     txn.commit()
                 elif self._versioned:
@@ -137,8 +128,37 @@ def put(
             else:
                 raise ObjectNotFoundError()
         except BaseException as exc:
-            if txn and implicit:
+            if implicit and txn:
                 txn.abort()
             abort(exc)
 
-    return _put
+class Attr:
+
+    def __init__(
+        self, readonly: bool = False
+    ) -> None:
+        self._readonly: bool = readonly
+        self.name: Optional[str] = None
+
+    def __set_name__(
+        self,
+        owner: Object,
+        name: str
+    ) -> None:
+        self.name = name
+
+    def __get__(
+        self,
+        obj: Object,
+        objtype: type = None
+    ) -> Any:
+        return obj._getattr(self.name)
+
+    def __set__(
+        self,
+        obj: Object,
+        value: Any
+    ) -> None:
+        if self._readonly:
+            raise AttributeError()
+        obj._putattr(self.name, value)

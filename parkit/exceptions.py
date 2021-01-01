@@ -20,6 +20,9 @@ class ObjectExistsError(TransactionError):
 class ObjectNotFoundError(TransactionError):
     pass
 
+class TimeoutError(RuntimeError):
+    pass
+
 def abort(exc_value: Optional[BaseException] = None) -> None:
     if exc_value:
         if not issubclass(type(exc_value), TransactionError):

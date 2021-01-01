@@ -1,4 +1,4 @@
-# pylint: disable = c-extension-no-member, too-many-arguments, too-many-instance-attributes, no-member, broad-except
+# pylint: disable = c-extension-no-member, broad-except, no-member, too-many-instance-attributes
 import datetime
 import logging
 import struct
@@ -20,13 +20,13 @@ from parkit.exceptions import (
     ObjectNotFoundError
 )
 from parkit.storage.context import context
-from parkit.storage.lmdbenv import (
+from parkit.storage.entitymeta import EntityMeta
+from parkit.storage.environment import (
     get_database_threadsafe,
     open_database_threadsafe,
     get_environment_threadsafe
 )
-from parkit.storage.objectmeta import ObjectMeta
-from parkit.storage.types import (
+from parkit.types import (
     Descriptor,
     LMDBProperties
 )
@@ -38,7 +38,7 @@ from parkit.utility import (
 
 logger = logging.getLogger(__name__)
 
-class Object(metaclass = ObjectMeta):
+class Entity(metaclass = EntityMeta):
 
     __slots__ = (
         '_environment', '_encoded_name', '_namespace', '_name_db',
@@ -54,7 +54,8 @@ class Object(metaclass = ObjectMeta):
         create: bool = True,
         bind: bool = True,
         versioned: bool = False,
-        on_create: Callable[[], None] = lambda: None
+        on_create: Optional[Callable[[], None]] = None,
+        custom_descriptor: Optional[Dict[str, Any]] = None
     ) -> None:
 
         if not create and not bind:
@@ -84,28 +85,36 @@ class Object(metaclass = ObjectMeta):
             self._finish_bind_lmdb(descriptor)
         elif create:
             with context(self._environment, write = True, inherit = True, buffers = False):
-                self._create_lmdb(properties, versioned)
-                on_create()
+                self._create_lmdb(properties, versioned, custom_descriptor)
+                print('on_create', on_create, type(on_create))
+                if on_create:
+                    on_create()
         else:
             raise ObjectNotFoundError()
 
     def __hash__(self) -> int:
-        return int(self._uuid_bytes)
+        return int.from_bytes(self._uuid_bytes, 'little')
 
     def __ne__(self, other: Any) -> bool:
         return not self.__eq__(other)
 
     def __eq__(self, other: Any) -> bool:
-        if issubclass(type(other), ObjectMeta):
+        if isinstance(type(other), EntityMeta):
             return self._uuid_bytes == other._uuid_bytes
         return False
 
-    def __getstate__(self) -> Tuple[str, bytes, bytes]:
-        return (self._namespace, self._encoded_name, self._uuid_bytes)
+    def __getstate__(self) -> Tuple[str, str, str, str]:
+        return (
+            get_qualified_class_name(self),
+            self._namespace,
+            self._encoded_name.decode('utf-8'),
+            str(uuid.UUID(bytes = self._uuid_bytes))
+        )
 
-    def __setstate__(self, from_wire: Tuple[str, bytes, bytes]) -> None:
-        self._namespace, self._encoded_name, self._uuid_bytes = from_wire
-
+    def __setstate__(self, from_wire: Tuple[str, str, str, str]) -> None:
+        _, self._namespace, name, uuidstr = from_wire
+        self._encoded_name = name.encode('utf-8')
+        self._uuid_bytes = uuid.UUID(uuidstr).bytes
         self._environment, self._name_db, self._attribute_db, self._version_db, \
         self._descriptor_db = get_environment_threadsafe(self._namespace)
         self._user_db = []
@@ -158,7 +167,8 @@ class Object(metaclass = ObjectMeta):
     def _create_lmdb(
         self,
         properties: List[LMDBProperties],
-        versioned: bool
+        versioned: bool,
+        custom_descriptor: Optional[Dict[str, Any]]
     ) -> None:
         txn = thread.local.transaction
         obj_uuid = txn.get(key = self._encoded_name, db = self._name_db)
@@ -168,7 +178,7 @@ class Object(metaclass = ObjectMeta):
         assert txn.put(key = self._encoded_name, value = obj_uuid, db = self._name_db)
         assert txn.put(key = obj_uuid, value = struct.pack('@N', 0), db = self._version_db)
         basename = str(uuid.uuid4())
-        descriptor = dict(
+        descriptor: Descriptor = dict(
             databases = list(
                 zip(
                     [
@@ -180,7 +190,8 @@ class Object(metaclass = ObjectMeta):
             ),
             versioned = versioned,
             created = datetime.datetime.now(),
-            type = get_qualified_class_name(self)
+            type = get_qualified_class_name(self),
+            custom = custom_descriptor if custom_descriptor else {}
         )
         assert txn.put(key = obj_uuid, value = orjson.dumps(descriptor), db = self._descriptor_db)
         for dbuid, props in descriptor['databases']:
@@ -304,7 +315,7 @@ class Object(metaclass = ObjectMeta):
             if implicit:
                 txn.commit()
         except BaseException as exc:
-            if txn and implicit:
+            if implicit and txn:
                 txn.abort()
             abort(exc)
         return result
@@ -361,7 +372,7 @@ class Object(metaclass = ObjectMeta):
             if implicit:
                 txn.commit()
         except BaseException as exc:
-            if txn and implicit:
+            if implicit and txn:
                 txn.abort()
             abort(exc)
         finally:

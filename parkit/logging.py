@@ -1,0 +1,20 @@
+import logging
+
+from typing import Any
+
+import parkit.constants as constants
+
+from parkit.adapters.log import Log
+
+syslog: Log = Log(constants.SYSLOG_PATH)
+
+class LogHandler(logging.StreamHandler):
+
+    def emit(self, record: Any) -> None:
+        syslog.append(self.format(record))
+
+logging.basicConfig(
+    format = '%(asctime)s %(levelname)s@%(name)s : %(message)s',
+    level = logging.INFO,
+    handlers = [LogHandler()]
+)

@@ -15,12 +15,12 @@ from parkit.exceptions import (
     abort,
     ContextError
 )
-from parkit.storage.lmdbenv import (
+from parkit.storage.entitymeta import EntityMeta
+from parkit.storage.environment import (
     get_database_threadsafe,
     get_environment_threadsafe
 )
-from parkit.storage.objectmeta import ObjectMeta
-from parkit.utility import resolve
+from parkit.utility import resolve_namespace
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +71,7 @@ def context(
         if not inherit:
             if write:
                 for obj in thread.local.changed:
-                    if isinstance(type(obj), ObjectMeta):
+                    if isinstance(type(obj), EntityMeta):
                         obj.increment_version()
             thread.local.transaction.commit()
     except BaseException as exc:
@@ -94,12 +94,12 @@ def context(
 
 def transaction(
     obj: Any,
-    zerocopy: bool = False,
-    isolated = False
+    zerocopy: bool = True,
+    isolated: bool = False
 ) -> ContextManager:
     if isinstance(obj, str):
-        env, _, _, _, _ = get_environment_threadsafe(resolve(obj, path = False))
-    elif isinstance(type(obj), ObjectMeta):
+        env, _, _, _, _ = get_environment_threadsafe(resolve_namespace(obj))
+    elif isinstance(type(obj), EntityMeta):
         env = obj._environment
     else:
         raise TypeError()
@@ -107,11 +107,11 @@ def transaction(
 
 def snapshot(
     obj: Any,
-    zerocopy: bool = False
+    zerocopy: bool = True
 ) -> ContextManager:
     if isinstance(obj, str):
-        env, _, _, _, _ = get_environment_threadsafe(resolve(obj, path = False))
-    elif isinstance(type(obj), ObjectMeta):
+        env, _, _, _, _ = get_environment_threadsafe(resolve_namespace(obj))
+    elif isinstance(type(obj), EntityMeta):
         env = obj._environment
     else:
         raise TypeError()

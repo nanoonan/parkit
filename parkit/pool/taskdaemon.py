@@ -1,11 +1,13 @@
-# pylint: disable = W0703, W0212, C0103
+# pylint: disable = invalid-name, broad-except, protected-access, unused-import
 import logging
 import os
 import platform
 import sys
 
 import daemoniker
+
 import parkit.constants as constants
+import parkit.logging
 
 from parkit.adapters import Queue
 from parkit.pool.commands import create_pid_filepath
@@ -16,19 +18,7 @@ from parkit.exceptions import (
 from parkit.storage import transaction
 from parkit.utility import polling_loop
 
-# FIXME
-
 logger = logging.getLogger(__name__)
-
-logging.basicConfig(
-    format = '[%(asctime)s] %(name)s : %(message)s',
-    level = logging.ERROR,
-    handlers = [
-        logging.FileHandler(
-            os.path.join('C:\\users\\rdpuser\\Desktop\\logs', 'python.log')
-        )
-    ]
-)
 
 if __name__ == '__main__':
 
@@ -57,44 +47,46 @@ if __name__ == '__main__':
         if platform.system() == 'Windows':
             del os.environ['__INVOKE_DAEMON__']
 
-        # FIXME: error handling needs work
-
         queue = Queue(constants.PROCESS_QUEUE_PATH)
-        for _ in polling_loop(polling_interval):
+
+        for _ in polling_loop(
+            polling_interval if polling_interval is not None else \
+            constants.DEFAULT_TASKER_POLLING_INTERVAL
+        ):
             while True:
                 process = queue.get()
                 if not process:
                     break
                 with transaction(process):
                     if process.exists:
-                        process._put('status', 'running')
-                        process._put('node_uid', node_uid)
-                        process._put('pid', os.getpid())
+                        process._putattr('status', 'running')
+                        process._putattr('node_uid', node_uid)
+                        process._putattr('pid', os.getpid())
                     else:
                         break
                 try:
                     result = exc_value = None
-                    target = process._get('target')
-                    args = process._get('args')
-                    kwargs = process._get('kwargs')
+                    target = process._getattr('target')
+                    args = process._getattr('args')
+                    kwargs = process._getattr('kwargs')
                     if target:
                         result = target(*args, **kwargs)
                     else:
                         result = None
-                except BaseException as exc:
-                    logger.exception('taskdaemon caught user error')
+                except Exception as exc:
+                    logger.exception('Task daemon caught user error')
                     exc_value = exc
                 finally:
                     try:
                         with transaction(process):
                             if process.exists:
                                 if exc_value:
-                                    process._put('status', 'failed')
-                                    process._put('error', exc_value)
+                                    process._putattr('status', 'failed')
+                                    process._putattr('error', exc_value)
                                 else:
-                                    process._put('status', 'finished')
+                                    process._putattr('status', 'finished')
                         if not exc_value:
-                            process._put('result', result)
+                            process._putattr('result', result)
                     except TransactionError:
                         pass
 

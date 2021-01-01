@@ -1,5 +1,5 @@
 [MESSAGES CONTROL]
 disable = missing-module-docstring, missing-class-docstring, missing-function-docstring, duplicate-code
 max-args = 10
-max-branches = 15
+max-branches = 20
 max-nested-blocks = 10
