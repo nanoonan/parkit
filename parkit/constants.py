@@ -1,5 +1,7 @@
 # pylint: disable = not-callable
-from parkit.types import Profiles
+import multiprocessing
+
+from parkit.typeddicts import Profiles
 
 MMH3_SEED: int = 42
 
@@ -8,7 +10,7 @@ PID_FILENAME_EXTENSION: str = '.pid'
 
 DEFAULT_MONITOR_POLLING_INTERVAL: float = 5
 DEFAULT_TASKER_POLLING_INTERVAL: float = 0.1
-DEFAULT_ADAPTER_POLLING_INTERVAL: float = 0.1
+DEFAULT_ADAPTER_POLLING_INTERVAL: float = 0.02
 
 PARKIT_TEMP_INSTALLATION_DIRNAME: str = 'parkit'
 
@@ -43,16 +45,16 @@ LMDB_PROFILES = Profiles(
 	},
 	persistent = {
 		'LMDB_WRITE_MAP': False,
-		'LMDB_METASYNC': False,
+		'LMDB_METASYNC': True,
 		'LMDB_MAP_ASYNC': False,
-		'LMDB_MAP_SIZE': 10737418240,
+		'LMDB_MAP_SIZE': 1073741824,
 		'LMDB_MAX_DBS': 65536,
 		'LMDB_READONLY': False,
-		'LMDB_SYNC': False,
-		'LMDB_READAHEAD': True,
+		'LMDB_SYNC': True,
+		'LMDB_READAHEAD': False,
 		'LMDB_MEMINIT': False,
-		'LMDB_MAX_SPARE_TXNS': 1024,
-		'LMDB_MAX_READERS': 1024
+		'LMDB_MAX_SPARE_TXNS': multiprocessing.cpu_count(),
+		'LMDB_MAX_READERS': 64
 	}
 )
 

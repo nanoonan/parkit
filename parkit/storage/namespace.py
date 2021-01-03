@@ -17,6 +17,13 @@ from parkit.utility import (
 
 logger = logging.getLogger(__name__)
 
+def set_size(size: int, /, *, namespace: Optional[str] = None) -> None:
+    if size <= 0:
+        raise ValueError('Size must be positive')
+    namespace = resolve_namespace(namespace) if namespace else constants.DEFAULT_NAMESPACE
+    env, _, _, _, _ = get_environment_threadsafe(namespace)
+    env.set_mapsize(size)
+
 def namespaces() -> Iterator[str]:
     for folder, _, _ in os.walk(getenv(constants.INSTALL_PATH_ENVNAME)):
         if folder != getenv(constants.INSTALL_PATH_ENVNAME):
@@ -24,7 +31,7 @@ def namespaces() -> Iterator[str]:
                 folder[len(getenv(constants.INSTALL_PATH_ENVNAME)):].split(os.path.sep)[1:]
             )
 
-def paths(namespace: Optional[str] = None) -> Iterator[str]:
+def objects(namespace: Optional[str] = None) -> Iterator[str]:
     namespace = resolve_namespace(namespace) if namespace else constants.DEFAULT_NAMESPACE
     env, name_db, _, _, _ = get_environment_threadsafe(namespace)
     with context(env, write = False, inherit = True, buffers = False):

@@ -20,19 +20,17 @@ import mmh3
 
 import parkit.constants as constants
 
-from parkit.exceptions import TimeoutError
-
 logger = logging.getLogger(__name__)
 
 def compile_function(
     code: str,
     *args: str,
-    globals_dict = Dict[str, Any]
+    glbs: Dict[str, Any]
 ) -> Callable[..., Any]:
     module_ast = ast.parse(code.format(*args))
     module_code = compile(module_ast, '__dynamic__', 'exec')
     function_code = [c__ for c__ in module_code.co_consts if isinstance(c__, types.CodeType)][0]
-    return types.FunctionType(function_code, globals_dict)
+    return types.FunctionType(function_code, glbs)
 
 def get_memory_size(target: Any) -> int:
     if isinstance(target, (type, types.ModuleType, types.FunctionType)):
@@ -170,17 +168,18 @@ def get_calling_modules() -> List[str]:
         frame = frame.f_back
     return modules
 
-class HighResolutionTimer():
+class Timer():
 
-    def __init__(self) -> None:
-        self.start_ns = 0
+    def __init__(self, tag) -> None:
+        self._start_ns = 0
+        self._tag = tag
 
     def start(self) -> None:
-        self.start_ns = time.time_ns()
+        self._start_ns = time.time_ns()
 
     def stop(self) -> None:
-        elapsed = time.time_ns() - self.start_ns
-        print('elapsed: {0} ms'.format(elapsed / 1e6))
+        elapsed = time.time_ns() - self._start_ns
+        print(self._tag, 'elapsed: {0} ms'.format(elapsed / 1e6))
 
     def __enter__(self) -> Any:
         self.start()

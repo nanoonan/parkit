@@ -1,8 +1,7 @@
 
 from parkit import (
     snapshot,
-    syslog,
-    timestamp
+    syslog
 )
 
 length = len(syslog)

@@ -2,7 +2,7 @@ import logging
 
 import parkit.constants as constants
 
-from parkit.types import Profiles
+from parkit.typeddicts import Profiles
 
 logger = logging.getLogger(__name__)
 

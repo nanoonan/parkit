@@ -11,10 +11,7 @@ import lmdb
 
 import parkit.storage.threadlocal as thread
 
-from parkit.exceptions import (
-    abort,
-    ContextError
-)
+from parkit.exceptions import ContextError
 from parkit.storage.entitymeta import EntityMeta
 from parkit.storage.environment import (
     get_database_threadsafe,
@@ -75,8 +72,9 @@ def context(
                         obj.increment_version()
             thread.local.transaction.commit()
     except BaseException as exc:
-        thread.local.transaction.abort()
-        abort(exc)
+        if not inherit:
+            thread.local.transaction.abort()
+        raise exc
     finally:
         if not inherit:
             ctx_stack = thread.local.context
@@ -100,7 +98,7 @@ def transaction(
     if isinstance(obj, str):
         env, _, _, _, _ = get_environment_threadsafe(resolve_namespace(obj))
     elif isinstance(type(obj), EntityMeta):
-        env = obj._environment
+        env = obj._Entity__env
     else:
         raise TypeError()
     return context(env, write = True, inherit = not isolated, buffers = zerocopy)
@@ -112,7 +110,7 @@ def snapshot(
     if isinstance(obj, str):
         env, _, _, _, _ = get_environment_threadsafe(resolve_namespace(obj))
     elif isinstance(type(obj), EntityMeta):
-        env = obj._environment
+        env = obj._Entity__env
     else:
         raise TypeError()
     return context(env, write = False, inherit = True, buffers = zerocopy)

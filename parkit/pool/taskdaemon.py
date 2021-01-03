@@ -2,17 +2,19 @@
 import logging
 import os
 import platform
+import queue
 import sys
 
 import daemoniker
 
 import parkit.constants as constants
-import parkit.logging
+import parkit.syslog
 
-from parkit.adapters import Queue
+from parkit.adapters import ProcessQueue
 from parkit.pool.commands import create_pid_filepath
 from parkit.exceptions import (
     log,
+    ObjectNotFoundError,
     TransactionError
 )
 from parkit.storage import transaction
@@ -47,47 +49,39 @@ if __name__ == '__main__':
         if platform.system() == 'Windows':
             del os.environ['__INVOKE_DAEMON__']
 
-        queue = Queue(constants.PROCESS_QUEUE_PATH)
+        process_queue = ProcessQueue(constants.PROCESS_QUEUE_PATH)
 
         for _ in polling_loop(
             polling_interval if polling_interval is not None else \
             constants.DEFAULT_TASKER_POLLING_INTERVAL
         ):
             while True:
-                process = queue.get()
-                if not process:
-                    break
-                with transaction(process):
-                    if process.exists:
-                        process._putattr('status', 'running')
-                        process._putattr('node_uid', node_uid)
-                        process._putattr('pid', os.getpid())
-                    else:
+                with transaction(constants.PROCESS_NAMESPACE):
+                    try:
+                        process = process_queue.get_nowait()
+                    except ObjectNotFoundError:
+                        continue
+                    except queue.Empty:
                         break
+                    process._Process__put('status', 'running')
+                    process._Process__put('node_uid', node_uid)
+                    process._Process__put('pid', os.getpid())
                 try:
                     result = exc_value = None
-                    target = process._getattr('target')
-                    args = process._getattr('args')
-                    kwargs = process._getattr('kwargs')
-                    if target:
-                        result = target(*args, **kwargs)
-                    else:
-                        result = None
+                    result = process.run(process)
                 except Exception as exc:
                     logger.exception('Task daemon caught user error')
                     exc_value = exc
                 finally:
                     try:
                         with transaction(process):
-                            if process.exists:
-                                if exc_value:
-                                    process._putattr('status', 'failed')
-                                    process._putattr('error', exc_value)
-                                else:
-                                    process._putattr('status', 'finished')
-                        if not exc_value:
-                            process._putattr('result', result)
-                    except TransactionError:
+                            if exc_value:
+                                process._Process__put('status', 'failed')
+                                process._Process__put('error', exc_value)
+                            else:
+                                process._Process__put('status', 'finished')
+                                process._Process__put('result', result)
+                    except ObjectNotFoundError:
                         pass
 
     except Exception as exc:

@@ -15,7 +15,7 @@ import parkit.constants as constants
 
 from parkit.exceptions import log
 from parkit.profiles import get_lmdb_profiles
-from parkit.types import LMDBProperties
+from parkit.typeddicts import LMDBProperties
 from parkit.utility import getenv
 
 logger = logging.getLogger(__name__)
@@ -82,10 +82,11 @@ Tuple[lmdb.Environment, lmdb._Database, lmdb._Database, lmdb._Database, lmdb._Da
                         os.makedirs(env_path)
                     except FileExistsError:
                         pass
-                if namespace.startswith(constants.PERSISTENT_NAMESPACE):
-                    profile = get_lmdb_profiles()['persistent']
-                else:
-                    profile = get_lmdb_profiles()['volatile']
+                # if namespace.startswith(constants.PERSISTENT_NAMESPACE):
+                #     profile = get_lmdb_profiles()['persistent']
+                # else:
+                #     profile = get_lmdb_profiles()['volatile']
+                profile = get_lmdb_profiles()['persistent']
                 env = lmdb.open(
                     env_path, subdir = True, create = True,
                     writemap = profile['LMDB_WRITE_MAP'],
@@ -99,6 +100,7 @@ Tuple[lmdb.Environment, lmdb._Database, lmdb._Database, lmdb._Database, lmdb._Da
                     sync = profile['LMDB_SYNC'],
                     meminit = profile['LMDB_MEMINIT']
                 )
+                env.reader_check()
                 name_db = env.open_db(
                     key = constants.NAME_DATABASE.encode('utf-8'), integerkey = False
                 )

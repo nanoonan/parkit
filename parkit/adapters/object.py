@@ -1,164 +1,172 @@
-# pylint: disable = broad-except, using-constant-test
+# pylint: disable = broad-except
 import logging
 import pickle
 
 from typing import (
-    Any, ByteString, Callable, cast, Optional
+    Any, ByteString, Callable, cast, Generator, Optional, Tuple
 )
 
 import parkit.storage.threadlocal as thread
 
-from parkit.exceptions import (
-    abort,
-    ObjectNotFoundError
+from parkit.storage import (
+    context,
+    Entity,
+    EntityMeta
 )
-from parkit.storage import Entity
+from parkit.utility import resolve_path
 
 logger = logging.getLogger(__name__)
 
-class Object(Entity):
+class ObjectMeta(EntityMeta):
+    pass
 
-    encode_attrkey: Callable[..., ByteString] = \
+class Object(Entity, metaclass = ObjectMeta):
+
+    encattrkey: Callable[..., ByteString] = \
     cast(Callable[..., ByteString], staticmethod(pickle.dumps))
 
-    encode_attrval: Callable[..., ByteString] = \
+    decattrkey: Callable[..., ByteString] = \
+    cast(Callable[..., ByteString], staticmethod(pickle.loads))
+
+    encattrval: Callable[..., ByteString] = \
     cast(Callable[..., ByteString], staticmethod(pickle.dumps))
 
-    decode_attrval: Callable[..., Any] = \
+    decattrval: Callable[..., Any] = \
     cast(Callable[..., Any], staticmethod(pickle.loads))
 
-    def _getattr(
+    def __init__(
         self,
-        key: Any
+        path: str,
+        /, *,
+        create: bool = True,
+        bind: bool = True,
+        versioned: bool = True,
+        on_create: Optional[Callable[[], None]] = None
+    ) -> None:
+        name, namespace = resolve_path(path)
+        super().__init__(
+            name, properties = [], namespace = namespace,
+            create = create, bind = bind, versioned = versioned,
+            on_create = on_create
+        )
+
+    def __getattr__(
+        self,
+        key: Any,
+        /
     ) -> Any:
+        if key[0] == '_' or key in self._Entity__def:
+            raise AttributeError()
         if key is not None:
-            key = self.encode_attrkey(key) if self.encode_attrkey else key
-            key = b''.join([self._uuid_bytes, key])
+            key = self.encattrkey(key) if self.encattrkey else key
+            key = b''.join([self._Entity__uuidbytes, key])
         else:
-            key = self._uuid_bytes
+            key = self._Entity__uuidbytes
         try:
             implicit = False
             cursor = None
             txn = thread.local.transaction
             if not txn:
                 implicit = True
-                txn = self._environment.begin(write = True)
-                cursor = txn.cursor(db = self._attribute_db)
+                txn = self._Entity__env.begin(write = True)
+                cursor = txn.cursor(db = self._Entity__attrdb)
             else:
-                cursor = thread.local.cursors[id(self._attribute_db)]
-            obj_uuid = txn.get(key = self._encoded_name, db = self._name_db)
-            if obj_uuid == self._uuid_bytes:
-                if cursor.set_key(key):
-                    result = cursor.value()
-                else:
-                    result = None
-                if implicit:
-                    txn.commit()
-            else:
-                raise ObjectNotFoundError()
+                cursor = thread.local.cursors[id(self._Entity__attrdb)]
+            result = None
+            if cursor.set_key(key):
+                result = cursor.value()
+            if implicit:
+                txn.commit()
         except BaseException as exc:
-            if implicit and txn:
-                txn.abort()
-            abort(exc)
+            self._Entity__abort(exc, txn if implicit else None)
         finally:
             if implicit and cursor:
                 cursor.close()
-        return self.decode_attrval(result) if result is not None and self.decode_attrval else result
+        if result is None:
+            raise AttributeError()
+        return self.decattrval(result) if self.decattrval else result
 
-    def _delattr(
-        self,
-        key: Any
-    ) -> None:
-        if key is not None:
-            key = self.encode_attrkey(key) if self.encode_attrkey else key
-            key = b''.join([self._uuid_bytes, key])
-        else:
-            key = self._uuid_bytes
-        try:
-            implicit = False
-            txn = thread.local.transaction
-            if not txn:
-                implicit = True
-                txn = self._environment.begin(write = True)
-            obj_uuid = txn.get(key = self._encoded_name, db = self._name_db)
-            if obj_uuid == self._uuid_bytes:
-                result = txn.delete(key = key, db = self._attribute_db)
-                if implicit:
-                    if result and self._versioned:
-                        self.increment_version(use_transaction = txn)
-                    txn.commit()
-                elif self._versioned:
-                    thread.local.changed.add(self)
-            else:
-                raise ObjectNotFoundError()
-        except BaseException as exc:
-            if implicit and txn:
-                txn.abort()
-            abort(exc)
-
-    def _putattr(
+    def __delattr__(
         self,
         key: Any,
-        value: Any
-    ):
+        /
+    ) -> None:
+        if key[0] == '_' or key in self._Entity__def:
+            super().__delattr__(key)
+            return
         if key is not None:
-            key = self.encode_attrkey(key) if self.encode_attrkey else key
-            key = b''.join([self._uuid_bytes, key])
+            key = self.encattrkey(key) if self.encattrkey else key
+            key = b''.join([self._Entity__uuidbytes, key])
         else:
-            key = self._uuid_bytes
-        value = self.encode_attrval(value) if self.encode_attrval else value
+            key = self._Entity__uuidbytes
         try:
             implicit = False
             txn = thread.local.transaction
             if not txn:
                 implicit = True
-                txn = self._environment.begin(write = True)
-            obj_uuid = txn.get(key = self._encoded_name, db = self._name_db)
-            if obj_uuid == self._uuid_bytes:
-                assert txn.put(
-                    key = key, value = value, overwrite = True, append = False,
-                    db = self._attribute_db
-                )
-                if implicit:
-                    if self._versioned:
-                        self.increment_version(use_transaction = txn)
-                    txn.commit()
-                elif self._versioned:
-                    thread.local.changed.add(self)
-            else:
-                raise ObjectNotFoundError()
+                txn = self._Entity__env.begin(write = True)
+            result = txn.delete(key = key, db = self._Entity__attrdb)
+            if implicit:
+                if result and self._Entity__vers:
+                    self.increment_version(use_transaction = txn)
+                txn.commit()
+            elif self._Entity__vers:
+                thread.local.changed.add(self)
         except BaseException as exc:
-            if implicit and txn:
-                txn.abort()
-            abort(exc)
+            self._Entity__abort(exc, txn if implicit else None)
 
-class Attr:
+    def attributes(
+        self
+    ) -> Generator[Tuple[Any, Any], None, None]:
+        with context(
+            self._Entity__env, write = False,
+            inherit = True, buffers = True
+        ):
+            cursor = thread.local.cursors[id(self._Entity__attrdb)]
+            if cursor.set_range(self._Entity__uuidbytes):
+                while True:
+                    key = cursor.key()
+                    key = bytes(key) if isinstance(key, memoryview) else key
+                    if key.startswith(self._Entity__uuidbytes):
+                        key = key[len(self._Entity__uuidbytes):]
+                        yield (
+                            self.decattrkey(key) if self.decattrkey else key,
+                            self.decattrval(cursor.value()) if self.decattrval else cursor.value()
+                        )
+                        if cursor.next():
+                            continue
+                    return
 
-    def __init__(
-        self, readonly: bool = False
-    ) -> None:
-        self._readonly: bool = readonly
-        self.name: Optional[str] = None
-
-    def __set_name__(
+    def __setattr__(
         self,
-        owner: Object,
-        name: str
+        key: Any,
+        value: Any,
+        /
     ) -> None:
-        self.name = name
-
-    def __get__(
-        self,
-        obj: Object,
-        objtype: type = None
-    ) -> Any:
-        return obj._getattr(self.name)
-
-    def __set__(
-        self,
-        obj: Object,
-        value: Any
-    ) -> None:
-        if self._readonly:
-            raise AttributeError()
-        obj._putattr(self.name, value)
+        if key[0] == '_' or key in self._Entity__def:
+            super().__setattr__(key, value)
+            return
+        if key is not None:
+            key = self.encattrkey(key) if self.encattrkey else key
+            key = b''.join([self._Entity__uuidbytes, key])
+        else:
+            key = self._Entity__uuidbytes
+        value = self.encattrval(value) if self.encattrval else value
+        try:
+            implicit = False
+            txn = thread.local.transaction
+            if not txn:
+                implicit = True
+                txn = self._Entity__env.begin(write = True)
+            assert txn.put(
+                key = key, value = value, overwrite = True, append = False,
+                db = self._Entity__attrdb
+            )
+            if implicit:
+                if self._Entity__vers:
+                    self.increment_version(use_transaction = txn)
+                txn.commit()
+            elif self._Entity__vers:
+                thread.local.changed.add(self)
+        except BaseException as exc:
+            self._Entity__abort(exc, txn if implicit else None)

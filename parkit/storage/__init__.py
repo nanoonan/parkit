@@ -9,5 +9,6 @@ from parkit.storage.entitymeta import EntityMeta
 from parkit.storage.missing import Missing
 from parkit.storage.namespace import (
 	namespaces,
-	paths
+	objects,
+    set_size
 )

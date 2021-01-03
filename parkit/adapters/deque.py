@@ -1,5 +1,6 @@
-# pylint: disable = no-value-for-parameter
+# pylint: disable = broad-except, no-value-for-parameter, non-parent-init-called, super-init-not-called, unused-import
 import logging
+import math
 import pickle
 import queue
 import struct
@@ -10,12 +11,12 @@ from typing import (
 
 import parkit.storage.threadlocal as thread
 
-from parkit.storage import (
-    Missing,
-    EntityMeta
-)
+from parkit.adapters.object import ObjectMeta
 from parkit.adapters.sized import Sized
-from parkit.exceptions import abort
+from parkit.storage import (
+    Entity,
+    Missing
+)
 from parkit.utility import (
     compile_function,
     resolve_path
@@ -31,7 +32,7 @@ def method(self) -> Any:
         txn = thread.local.transaction
         if not txn:
             implicit = True
-            txn = self._environment.begin(write = True)
+            txn = self._Entity__env.begin(write = True)
         {0}
         cursor = txn.cursor(db = database) if implicit else thread.local.cursors[id(database)]
 
@@ -41,9 +42,7 @@ def method(self) -> Any:
         if implicit:
             txn.commit()
     except BaseException as exc:
-        if implicit and txn:
-            txn.abort()
-        abort(exc)
+        self._Entity__abort(exc, txn if implicit else None)
     finally:
         if implicit and cursor:
             cursor.close()
@@ -52,18 +51,15 @@ def method(self) -> Any:
     return self.decode_item(result) if self.decode_item else result
 """
     insert = """
-    last, database = (True, self._user_db[0]) if txn.stat(self._user_db[0])['entries'] \
-    else (False, self._user_db[1])
+    last, database = (True, self._Entity__userdb[0]) if txn.stat(self._Entity__userdb[0])['entries'] \
+    else (False, self._Entity__userdb[1])
     """.strip() if left else """
-    last, database = (True, self._user_db[1]) \
-    if txn.stat(self._user_db[1])['entries'] else (False, self._user_db[0])
+    last, database = (True, self._Entity__userdb[1]) \
+    if txn.stat(self._Entity__userdb[1])['entries'] else (False, self._Entity__userdb[0])
     """.strip()
     return compile_function(
         code, insert,
-        globals_dict = dict(
-            struct = struct, BaseException = BaseException, thread = thread,
-            abort = abort, id = id, queue = queue
-        )
+        glbs = globals()
     )
 
 # FIXME: check max size
@@ -80,7 +76,7 @@ def method(
         database = {0}
         cursor = thread.local.cursors[id(database)]
         if not cursor:
-            txn = self._environment.begin(write = True)
+            txn = self._Entity__env.begin(write = True)
             cursor = txn.cursor(db = database)
         if not cursor.last():
             key = struct.pack('@N', 0)
@@ -90,22 +86,17 @@ def method(
         if txn:
             txn.commit()
     except BaseException as exc:
-        if txn:
-            txn.abort()
-        abort(exc)
+        self._Entity__abort(exc, txn)
     finally:
         if txn and cursor:
             cursor.close()
 """
     return compile_function(
-        code, 'self._user_db[0]' if left else 'self._user_db[1]',
-        globals_dict = dict(
-            struct = struct, BaseException = BaseException, thread = thread,
-            abort = abort, id = id
-        )
+        code, 'self._Entity__userdb[0]' if left else 'self._Entity__userdb[1]',
+        glbs = globals()
     )
 
-class DequeMeta(EntityMeta):
+class DequeMeta(ObjectMeta):
 
     def __initialize_class__(cls):
         super().__initialize_class__()
@@ -138,8 +129,8 @@ class Deque(Sized, metaclass = DequeMeta):
         maxsize: int = 0
     ) -> None:
         name, namespace = resolve_path(path)
-        super().__init__(
-            name, properties = [{'integerkey':True}, {'integerkey':True}],
+        Entity.__init__(
+            self, name, properties = [{'integerkey':True}, {'integerkey':True}],
             namespace = namespace, create = create, bind = bind,
             custom_descriptor = {'maxsize': maxsize if maxsize > 0 else math.inf}
         )

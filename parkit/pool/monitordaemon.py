@@ -8,7 +8,7 @@ import uuid
 import daemoniker
 
 import parkit.constants as constants
-import parkit.logging
+import parkit.syslog
 
 from parkit.pool.commands import (
     create_pid_filepath,

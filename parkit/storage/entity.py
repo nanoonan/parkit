@@ -1,4 +1,4 @@
-# pylint: disable = c-extension-no-member, broad-except, no-member, too-many-instance-attributes
+# pylint: disable = c-extension-no-member, broad-except, no-member, too-many-instance-attributes, protected-access
 import datetime
 import logging
 import struct
@@ -15,9 +15,9 @@ import parkit.constants as constants
 import parkit.storage.threadlocal as thread
 
 from parkit.exceptions import (
-    abort,
     ObjectExistsError,
-    ObjectNotFoundError
+    ObjectNotFoundError,
+    TransactionError
 )
 from parkit.storage.context import context
 from parkit.storage.entitymeta import EntityMeta
@@ -26,7 +26,7 @@ from parkit.storage.environment import (
     open_database_threadsafe,
     get_environment_threadsafe
 )
-from parkit.types import (
+from parkit.typeddicts import (
     Descriptor,
     LMDBProperties
 )
@@ -40,16 +40,17 @@ logger = logging.getLogger(__name__)
 
 class Entity(metaclass = EntityMeta):
 
-    __slots__ = (
-        '_environment', '_encoded_name', '_namespace', '_name_db',
-        '_descriptor_db', '_version_db', '_attribute_db',
-        '_user_db', '_versioned', '_creator', '_uuid_bytes'
-    )
+    __slots__ = {
+        '__env', '__encname', '__namespace', '__namedb',
+        '__descdb', '__versdb', '__attrdb', '__userdb',
+        '__vers', '__creator', '__uuidbytes', '__def'
+    }
 
     def __init__(
         self,
         name: str,
-        properties: List[LMDBProperties],
+        /, *,
+        properties: Optional[List[LMDBProperties]] = None,
         namespace: Optional[str] = None,
         create: bool = True,
         bind: bool = True,
@@ -61,122 +62,120 @@ class Entity(metaclass = EntityMeta):
         if not create and not bind:
             raise ValueError()
 
-        self._encoded_name: bytes = name.encode('utf-8')
-        self._namespace: str = namespace if namespace else constants.DEFAULT_NAMESPACE
+        self.__encname: bytes = name.encode('utf-8')
+        self.__namespace: str = namespace if namespace else constants.DEFAULT_NAMESPACE
 
-        self._environment: lmdb.Environment
-        self._name_db: lmdb._Database
-        self._attribute_db: lmdb._Database
-        self._version_db: lmdb._Database
-        self._descriptor_db: lmdb._Database
+        self.__env: lmdb.Environment
+        self.__namedb: lmdb._Database
+        self.__attrdb: lmdb._Database
+        self.__versdb: lmdb._Database
+        self.__descdb: lmdb._Database
 
-        self._environment, self._name_db, self._attribute_db, self._version_db, \
-        self._descriptor_db = get_environment_threadsafe(self._namespace)
-        self._user_db: List[lmdb._Database] = []
+        self.__env, self.__namedb, self.__attrdb, self.__versdb, \
+        self.__descdb = get_environment_threadsafe(self.__namespace)
+        self.__userdb: List[lmdb._Database] = []
 
-        self._versioned: bool
-        self._creator: bool
-        self._uuid_bytes: bytes
+        self.__vers: bool
+        self.__creator: bool
+        self.__uuidbytes: bytes
 
         if bind:
-            descriptor = self._try_bind_lmdb()
+            descriptor = self.__try_bind_lmdb()
 
         if descriptor:
-            self._finish_bind_lmdb(descriptor)
+            self.__finish_bind_lmdb(descriptor)
         elif create:
-            with context(self._environment, write = True, inherit = True, buffers = False):
-                self._create_lmdb(properties, versioned, custom_descriptor)
-                print('on_create', on_create, type(on_create))
+            with context(self.__env, write = True, inherit = True, buffers = False):
+                self.__create_lmdb(properties if properties else [], versioned, custom_descriptor)
                 if on_create:
                     on_create()
         else:
             raise ObjectNotFoundError()
 
+        self.__def = [name for name in dir(self) if not name[0] == '_']
+
     def __hash__(self) -> int:
-        return int.from_bytes(self._uuid_bytes, 'little')
+        return int.from_bytes(self.__uuidbytes, 'little')
 
     def __ne__(self, other: Any) -> bool:
         return not self.__eq__(other)
 
     def __eq__(self, other: Any) -> bool:
         if isinstance(type(other), EntityMeta):
-            return self._uuid_bytes == other._uuid_bytes
+            return self.__uuidbytes == other.__uuidbytes
         return False
 
     def __getstate__(self) -> Tuple[str, str, str, str]:
         return (
             get_qualified_class_name(self),
-            self._namespace,
-            self._encoded_name.decode('utf-8'),
-            str(uuid.UUID(bytes = self._uuid_bytes))
+            self.__namespace,
+            self.__encname.decode('utf-8'),
+            str(uuid.UUID(bytes = self.__uuidbytes))
         )
 
     def __setstate__(self, from_wire: Tuple[str, str, str, str]) -> None:
-        _, self._namespace, name, uuidstr = from_wire
-        self._encoded_name = name.encode('utf-8')
-        self._uuid_bytes = uuid.UUID(uuidstr).bytes
-        self._environment, self._name_db, self._attribute_db, self._version_db, \
-        self._descriptor_db = get_environment_threadsafe(self._namespace)
-        self._user_db = []
-
-        with context(self._environment, write = False, inherit = True, buffers = False):
+        _, self.__namespace, name, uuidstr = from_wire
+        self.__encname = name.encode('utf-8')
+        self.__uuidbytes = uuid.UUID(uuidstr).bytes
+        self.__env, self.__namedb, self.__attrdb, self.__versdb, \
+        self.__descdb = get_environment_threadsafe(self.__namespace)
+        self.__userdb = []
+        with context(self.__env, write = False, inherit = True, buffers = False):
             txn = thread.local.transaction
-            obj_uuid = txn.get(key = self._encoded_name, db = self._name_db)
-            if obj_uuid != self._uuid_bytes:
+            obj_uuid = txn.get(key = self.__encname, db = self.__namedb)
+            if obj_uuid != self.__uuidbytes:
                 raise ObjectNotFoundError()
-            result = txn.get(key = obj_uuid, db = self._descriptor_db)
+            result = txn.get(key = obj_uuid, db = self.__descdb)
             result = bytes(result) if isinstance(result, memoryview) else result
             descriptor = orjson.loads(result)
-            self._creator = False
-            self._versioned = descriptor['versioned']
-
-        self._finish_bind_lmdb(descriptor)
-
+            self.__creator = False
+            self.__vers = descriptor['versioned']
+        self.__finish_bind_lmdb(descriptor)
         self.__class__.__initialize_class__()
 
-    def _try_bind_lmdb(self) -> Optional[Descriptor]:
-        with context(self._environment, write = False, inherit = True, buffers = False):
+    def __try_bind_lmdb(self) -> Optional[Descriptor]:
+        with context(self.__env, write = False, inherit = True, buffers = False):
             txn = thread.local.transaction
-            result = txn.get(key = self._encoded_name, db = self._name_db)
+            result = txn.get(key = self.__encname, db = self.__namedb)
             if result:
                 obj_uuid = bytes(result) if isinstance(result, memoryview) else result
-                result = txn.get(key = obj_uuid, db = self._descriptor_db)
+                result = txn.get(key = obj_uuid, db = self.__descdb)
                 result = bytes(result) if isinstance(result, memoryview) else result
                 descriptor = orjson.loads(result)
                 if descriptor['type'] != get_qualified_class_name(self):
                     raise TypeError()
-                self._uuid_bytes = obj_uuid
-                self._creator = False
-                self._versioned = descriptor['versioned']
+                self.__uuidbytes = obj_uuid
+                self.__creator = False
+                self.__vers = descriptor['versioned']
                 return descriptor
             return None
 
-    def _finish_bind_lmdb(self, descriptor: Descriptor) -> None:
+    def __finish_bind_lmdb(self, descriptor: Descriptor) -> None:
         for dbuid, _ in descriptor['databases']:
-            self._user_db.append(get_database_threadsafe(dbuid))
-        if any([db is None for db in self._user_db]):
-            with context(self._environment, write = True, inherit = True, buffers = False):
+            self.__userdb.append(get_database_threadsafe(dbuid))
+        if any([db is None for db in self.__userdb]):
+            with context(self.__env, write = True, inherit = True, buffers = False):
                 txn = thread.local.transaction
                 for index, (dbuid, properties) in enumerate(descriptor['databases']):
-                    if not self._user_db[index]:
-                        self._user_db[index] = \
+                    if not self.__userdb[index]:
+                        self.__userdb[index] = \
                         open_database_threadsafe(
-                            txn, self._environment, dbuid, properties, create = False
+                            txn, self.__env, dbuid, properties, create = False
                         )
 
-    def _create_lmdb(
+    def __create_lmdb(
         self,
         properties: List[LMDBProperties],
         versioned: bool,
         custom_descriptor: Optional[Dict[str, Any]]
     ) -> None:
         txn = thread.local.transaction
-        obj_uuid = txn.get(key = self._encoded_name, db = self._name_db)
+        obj_uuid = txn.get(key = self.__encname, db = self.__namedb)
         if obj_uuid:
             raise ObjectExistsError()
         obj_uuid = uuid.uuid4().bytes
-        assert txn.put(key = self._encoded_name, value = obj_uuid, db = self._name_db)
-        assert txn.put(key = obj_uuid, value = struct.pack('@N', 0), db = self._version_db)
+        assert txn.put(key = self.__encname, value = obj_uuid, db = self.__namedb)
+        assert txn.put(key = obj_uuid, value = struct.pack('@N', 0), db = self.__versdb)
         basename = str(uuid.uuid4())
         descriptor: Descriptor = dict(
             databases = list(
@@ -193,29 +192,56 @@ class Entity(metaclass = EntityMeta):
             type = get_qualified_class_name(self),
             custom = custom_descriptor if custom_descriptor else {}
         )
-        assert txn.put(key = obj_uuid, value = orjson.dumps(descriptor), db = self._descriptor_db)
+        assert txn.put(key = obj_uuid, value = orjson.dumps(descriptor), db = self.__descdb)
         for dbuid, props in descriptor['databases']:
-            self._user_db.append(open_database_threadsafe(
-                txn, self._environment, dbuid, props, create = True)
+            self.__userdb.append(open_database_threadsafe(
+                txn, self.__env, dbuid, props, create = True)
             )
-        self._versioned = descriptor['versioned']
-        self._uuid_bytes = obj_uuid
-        self._creator = True
+        self.__vers = descriptor['versioned']
+        self.__uuidbytes = obj_uuid
+        self.__creator = True
+
+    def __abort(
+        self,
+        exc_value: BaseException,
+        txn: Optional[lmdb.Transaction] = None,
+        check_exists = True
+    ) -> None:
+        abort = True
+        if not txn:
+            abort = False
+            txn = thread.local.transaction
+        try:
+            if check_exists and isinstance(exc_value, lmdb.Error):
+                obj_uuid = txn.get(key = self.__encname, db = self.__namedb)
+                if obj_uuid != self.__uuidbytes:
+                    raise ObjectNotFoundError() from exc_value
+        except lmdb.Error as exc:
+            raise TransactionError() from exc
+        finally:
+            if abort:
+                try:
+                    txn.abort()
+                except lmdb.Error as exc:
+                    raise TransactionError() from exc
+        if isinstance(exc_value, lmdb.Error):
+            raise TransactionError() from exc_value
+        raise exc_value
 
     @property
     def path(self) -> str:
         return '/'.join([
-            self._namespace,
-            self._encoded_name.decode('utf-8')
+            self.__namespace,
+            self.__encname.decode('utf-8')
         ])
 
     @property
     def uuid(self) -> str:
-        return str(uuid.UUID(bytes = self._uuid_bytes))
+        return str(uuid.UUID(bytes = self.__uuidbytes))
 
     @property
     def versioned(self) -> bool:
-        return self._versioned
+        return self.__vers
 
     @property
     def persistent(self) -> bool:
@@ -223,42 +249,46 @@ class Entity(metaclass = EntityMeta):
 
     @property
     def creator(self) -> bool:
-        return self._creator
+        return self.__creator
 
     @property
     def namespace(self) -> str:
-        return self._namespace
+        return self.__namespace
 
     @property
     def name(self) -> str:
-        return self._encoded_name.decode('utf-8')
+        return self.__encname.decode('utf-8')
 
     @property
     def debug(self) -> Dict[str, Any]:
+        self.__env.reader_check()
         return dict(
             memory_size = get_memory_size(self),
-            encoded_name = self._encoded_name,
-            namespace = self._namespace,
-            uuid_bytes = self._uuid_bytes,
-            versioned = self._versioned,
-            creator = self._creator,
-            environment = self._environment,
-            name_db = (id(self._name_db), self._name_db),
-            attribute_db = (id(self._attribute_db), self._attribute_db),
-            version_db = (id(self._version_db), self._version_db),
-            descriptor_db = (id(self._descriptor_db), self._descriptor_db),
-            user_db = [(id(user_db), user_db) for user_db in self._user_db]
+            encoded_name = self.__encname,
+            namespace = self.__namespace,
+            uuid_bytes = self.__uuidbytes,
+            versioned = self.__vers,
+            creator = self.__creator,
+            environment = self.__env,
+            name_db = (id(self.__namedb), self.__namedb),
+            attribute_db = (id(self.__attrdb), self.__attrdb),
+            version_db = (id(self.__versdb), self.__versdb),
+            descriptor_db = (id(self.__descdb), self.__descdb),
+            user_db = [(id(user_db), user_db) for user_db in self.__userdb],
+            env_readers = self.__env.readers(),
+            env_stat = self.__env.stat(),
+            env_info = self.__env.info()
         )
 
     @property
     def descriptor(self) -> Descriptor:
         try:
             txn = None
-            cursor = thread.local.cursors[id(self._descriptor_db)]
+            cursor = thread.local.cursors[id(self.__descdb)]
             if not cursor:
-                txn = self._environment.begin()
-                cursor = txn.cursor(db = self._descriptor_db)
-            if cursor.set_key(self._uuid_bytes):
+                txn = self.__env.begin()
+                cursor = txn.cursor(db = self.__descdb)
+            if cursor.set_key(self.__uuidbytes):
                 result = cursor.value()
                 result = bytes(result) if isinstance(result, memoryview) else result
             else:
@@ -266,38 +296,34 @@ class Entity(metaclass = EntityMeta):
             if txn:
                 txn.commit()
         except BaseException as exc:
-            if txn:
-                txn.abort()
-            abort(exc)
+            self.__abort(exc, txn, False)
         finally:
             if txn and cursor:
                 cursor.close()
         return orjson.loads(result)
 
     def increment_version(self, use_transaction: Optional[lmdb.Transaction] = None) -> None:
-        if not self._versioned:
+        if not self.__vers:
             return
         try:
-            txn = None
+            txn = cursor = None
             if use_transaction:
                 txn = use_transaction
-                cursor = txn.cursor(db = self._version_db)
+                cursor = txn.cursor(db = self.__versdb)
             else:
-                cursor = thread.local.cursors[id(self._version_db)]
+                cursor = thread.local.cursors[id(self.__versdb)]
                 if not cursor:
-                    txn = self._environment.begin()
-                    cursor = txn.cursor(db = self._version_db)
-            if cursor.set_key(self._uuid_bytes):
+                    txn = self.__env.begin(write = True)
+                    cursor = txn.cursor(db = self.__versdb)
+            if cursor.set_key(self.__uuidbytes):
                 version = struct.pack('@N', struct.unpack('@N', cursor.value())[0] + 1)
-                assert cursor.put(key = self._uuid_bytes, value = version)
+                assert cursor.put(key = self.__uuidbytes, value = version)
             else:
                 raise ObjectNotFoundError()
             if txn and not use_transaction:
                 txn.commit()
         except BaseException as exc:
-            if txn:
-                txn.abort()
-            abort(exc)
+            self.__abort(exc, txn, False)
         finally:
             if txn and cursor:
                 cursor.close()
@@ -309,26 +335,24 @@ class Entity(metaclass = EntityMeta):
             txn = thread.local.transaction
             if not txn:
                 implicit = True
-                txn = self._environment.begin()
-            obj_uuid = txn.get(key = self._encoded_name, db = self._name_db)
-            result = obj_uuid == self._uuid_bytes
+                txn = self.__env.begin()
+            obj_uuid = txn.get(key = self.__encname, db = self.__namedb)
+            result = obj_uuid == self.__uuidbytes
             if implicit:
                 txn.commit()
         except BaseException as exc:
-            if implicit and txn:
-                txn.abort()
-            abort(exc)
+            self.__abort(exc, txn if implicit else None, False)
         return result
 
     @property
     def version(self) -> int:
         try:
             txn = None
-            cursor = thread.local.cursors[id(self._version_db)]
+            cursor = thread.local.cursors[id(self.__versdb)]
             if not cursor:
-                txn = self._environment.begin()
-                cursor = txn.cursor(db = self._version_db)
-            if cursor.set_key(self._uuid_bytes):
+                txn = self.__env.begin()
+                cursor = txn.cursor(db = self.__versdb)
+            if cursor.set_key(self.__uuidbytes):
                 version = cursor.value()
                 version = struct.unpack('@N', version)[0]
             else:
@@ -336,9 +360,7 @@ class Entity(metaclass = EntityMeta):
             if txn:
                 txn.commit()
         except BaseException as exc:
-            if txn:
-                txn.abort()
-            abort(exc)
+            self.__abort(exc, txn, False)
         finally:
             if txn and cursor:
                 cursor.close()
@@ -346,35 +368,37 @@ class Entity(metaclass = EntityMeta):
 
     def drop(self) -> None:
         try:
-            txn = None
-            cursor = thread.local.cursors[id(self._attribute_db)]
+            txn = cursor = None
+            cursor = thread.local.cursors[id(self.__attrdb)]
             implicit = False
             if not cursor:
                 implicit = True
-                txn = self._environment.begin(write = True)
-                cursor = txn.cursor(db = self._attribute_db)
+                txn = self.__env.begin(write = True)
+                cursor = txn.cursor(db = self.__attrdb)
             else:
                 txn = thread.local.transaction
-            obj_uuid = txn.get(key = self._encoded_name, db = self._name_db)
-            if obj_uuid == self._uuid_bytes:
-                for database in self._user_db:
+            obj_uuid = txn.get(key = self.__encname, db = self.__namedb)
+            if obj_uuid == self.__uuidbytes:
+                for database in self.__userdb:
                     txn.drop(database, delete = True)
-                assert txn.delete(key = self._encoded_name, db = self._name_db)
-                assert txn.delete(key = self._uuid_bytes, db = self._version_db)
-                assert txn.delete(key = self._uuid_bytes, db = self._descriptor_db)
-                if cursor.set_range(self._uuid_bytes):
-                    if cursor.key().startswith(self._uuid_bytes):
+                assert txn.delete(key = self.__encname, db = self.__namedb)
+                assert txn.delete(key = self.__uuidbytes, db = self.__versdb)
+                assert txn.delete(key = self.__uuidbytes, db = self.__descdb)
+                if cursor.set_range(self.__uuidbytes):
+                    key = cursor.key()
+                    key = bytes(key) if isinstance(key, memoryview) else key
+                    if key.startswith(self.__uuidbytes):
                         while True:
                             if not cursor.delete():
                                 break
-                            if not cursor.key().startswith(self._uuid_bytes):
+                            key = cursor.key()
+                            key = bytes(key) if isinstance(key, memoryview) else key
+                            if not key.startswith(self.__uuidbytes):
                                 break
             if implicit:
                 txn.commit()
         except BaseException as exc:
-            if implicit and txn:
-                txn.abort()
-            abort(exc)
+            self.__abort(exc, txn if implicit else None, False)
         finally:
             if implicit and cursor:
                 cursor.close()

@@ -1,4 +1,4 @@
-# pylint: disable = broad-except, no-value-for-parameter, using-constant-test
+# pylint: disable = broad-except, no-value-for-parameter, non-parent-init-called, super-init-not-called, unused-import
 import collections.abc
 import logging
 import pickle
@@ -12,11 +12,11 @@ from typing import (
 
 import parkit.storage.threadlocal as thread
 
+from parkit.adapters.object import ObjectMeta
 from parkit.adapters.sized import Sized
-from parkit.exceptions import abort
 from parkit.storage import (
+    Entity,
     context,
-    EntityMeta,
     Missing
 )
 from parkit.utility import (
@@ -31,14 +31,14 @@ _unspecified_class = types.new_class('__unspecified__')
 def mkiter(
     keys: bool = True,
     values: bool = False
-) -> Callable[..., Generator[Union[Any, Tuple[Any, Any]], None, None]]:
+) -> Tuple[str, Callable[..., Generator[Union[Any, Tuple[Any, Any]], None, None]]]:
     code = """
 def method(self) -> Generator[Union[Any, Tuple[Any, Any]], None, None]:
     with context(
-        self._environment, write = False,
+        self._Entity__env, write = False,
         inherit = True, buffers = True
     ):
-        cursor = thread.local.cursors[id(self._user_db[0])]
+        cursor = thread.local.cursors[id(self._Entity__userdb[0])]
         if not cursor.first():
             return
         while True:
@@ -48,185 +48,199 @@ def method(self) -> Generator[Union[Any, Tuple[Any, Any]], None, None]:
 """
     if keys and not values:
         insert = """
-        yield self.decode_key(cursor.key()) if self.decode_key else cursor.key()
+            yield self.decitemkey(cursor.key()) if self.decitemkey else cursor.key()
         """.strip()
     elif values and not keys:
         insert = """
-        yield self.decode_value(cursor.value()) if self.decode_value else cursor.value()
+            yield self.decitemval(cursor.value()) if self.decitemval else cursor.value()
         """
     else:
         insert = """
-        yield (
-            self.decode_key(cursor.key()) if self.decode_key else cursor.key(),
-            self.decode_value(cursor.value()) if self.decode_value else cursor.value()
-        )
+            yield (
+                self.decitemkey(cursor.key()) if self.decitemkey else cursor.key(),
+                self.decitemval(cursor.value()) if self.decitemval else cursor.value()
+            )
         """
-    return compile_function(
-        code, insert,
-        globals_dict = dict(
-            context = context,
-            id = id,
-            thread = thread
-        )
-    )
+    return (code.format(insert), compile_function(
+        code, insert, glbs = globals()
+    ))
 
-class DictMeta(EntityMeta):
+class DictMeta(ObjectMeta):
 
     def __initialize_class__(cls):
-        super().__initialize_class__()
         if isinstance(cls.__iter__, Missing):
-            setattr(cls, '__iter__', mkiter(keys = True, values = False))
+            code, method = mkiter(keys = True, values = False)
+            setattr(cls, '__iter__', method)
+            setattr(cls, '__iter__code', code)
         if isinstance(cls.keys, Missing):
-            setattr(cls, 'keys', mkiter(keys = True, values = False))
+            code, method = mkiter(keys = True, values = False)
+            setattr(cls, 'keys', method)
+            setattr(cls, 'keyscode', code)
         if isinstance(cls.values, Missing):
-            setattr(cls, 'values', mkiter(keys = False, values = True))
+            code, method = mkiter(keys = False, values = True)
+            setattr(cls, 'values', method)
+            setattr(cls, 'valuescode', code)
         if isinstance(cls.items, Missing):
-            setattr(cls, 'items', mkiter(keys = True, values = True))
+            code, method = mkiter(keys = True, values = True)
+            setattr(cls, 'items', method)
+            setattr(cls, 'itemscode', code)
 
     def __call__(cls, *args, **kwargs):
-        print('dict meta')
         cls.__initialize_class__()
         return super().__call__(*args, **kwargs)
 
 class Dict(Sized, metaclass = DictMeta):
 
-    decode_key: Callable[..., Any] = \
+    decitemkey: Callable[..., Any] = \
     cast(Callable[..., Any], staticmethod(pickle.loads))
 
-    encode_key: Callable[..., ByteString] = \
+    encitemkey: Callable[..., ByteString] = \
     cast(Callable[..., ByteString], staticmethod(pickle.dumps))
 
-    decode_value: Callable[..., Any] = \
+    decitemval: Callable[..., Any] = \
     cast(Callable[..., Any], staticmethod(pickle.loads))
 
-    encode_value: Callable[..., ByteString] = \
+    encitemval: Callable[..., ByteString] = \
     cast(Callable[..., ByteString], staticmethod(pickle.dumps))
 
     def __init__(
         self,
         path: str,
+        /,*,
         create: bool = True,
         bind: bool = True,
-        versioned: bool = False,
-        on_create = None
+        versioned: bool = True
     ) -> None:
         name, namespace = resolve_path(path)
-        super().__init__(
-            name, properties = [{}], namespace = namespace,
-            create = create, bind = bind, versioned = versioned,
-            on_create = on_create
+        Entity.__init__(
+            self, name, properties = [{}], namespace = namespace,
+            create = create, bind = bind, versioned = versioned
         )
 
     def __getitem__(
         self,
         key: Any,
-        default: Any = None
+        /
     ) -> Any:
-        key = self.encode_key(key) if self.encode_key else key
+        key = self.encitemkey(key) if self.encitemkey else key
         try:
             implicit = False
             txn = thread.local.transaction
             if not txn:
                 implicit = True
-                txn = self._environment.begin()
-            result = txn.get(key = key, default = default, db = self._user_db[0])
+                txn = self._Entity__env.begin()
+            result = txn.get(key = key, default = None, db = self._Entity__userdb[0])
             if implicit:
                 txn.commit()
         except BaseException as exc:
-            if implicit and txn:
-                txn.abort()
-            abort(exc)
-        return self.decode_value(result) if self.decode_value and result != default else result
+            self._Entity__abort(exc, txn if implicit else None)
+        if result is None:
+            raise KeyError()
+        return self.decitemval(result) if self.decitemval else result
 
-    get = __getitem__
+    def get(
+        self,
+        key: Any,
+        default: Any = None,
+        /
+    ) -> Any:
+        key = self.encitemkey(key) if self.encitemkey else key
+        try:
+            implicit = False
+            txn = thread.local.transaction
+            if not txn:
+                implicit = True
+                txn = self._Entity__env.begin()
+            result = txn.get(key = key, default = default, db = self._Entity__userdb[0])
+            if implicit:
+                txn.commit()
+        except BaseException as exc:
+            self._Entity__abort(exc, txn if implicit else None)
+        return self.decitemval(result) if self.decitemval and result != default else result
 
     def setdefault(
         self,
         key: Any,
-        default: Any = None
+        default: Any = None,
+        /
     ) -> Any:
-        key = self.encode_key(key) if self.encode_key else key
+        key = self.encitemkey(key) if self.encitemkey else key
         try:
             txn = cursor = None
-            cursor = thread.local.cursors[id(self._user_db[0])]
+            cursor = thread.local.cursors[id(self._Entity__userdb[0])]
             if not cursor:
-                txn = self._environment.begin(write = True)
-                cursor = txn.cursor(db = self._user_db[0])
+                txn = self._Entity__env.begin(write = True)
+                cursor = txn.cursor(db = self._Entity__userdb[0])
             result = cursor.set_key(key)
             if result:
                 value = cursor.value()
             else:
-                default = self.encode_value(default) if self.encode_value else default
+                default = self.encitemval(default) if self.encitemval else default
                 assert cursor.put(key = key, value = default)
-                if txn and self._versioned:
+                if txn and self._Entity__vers:
                     self.increment_version(use_transaction = txn)
-                elif not txn and self._versioned:
+                elif not txn and self._Entity__vers:
                     thread.local.changed.add(self)
             if txn:
                 txn.commit()
         except BaseException as exc:
-            if txn:
-                txn.abort()
-            abort(exc)
+            self._Entity__abort(exc, txn)
         finally:
             if txn and cursor:
                 cursor.close()
-        return default if not result else (self.decode_value(value) if self.decode_value else value)
+        return default if not result else (self.decitemval(value) if self.decitemval else value)
 
     def popitem(self) -> Any:
         try:
             txn = cursor = None
-            cursor = thread.local.cursors[id(self._user_db[0])]
+            cursor = thread.local.cursors[id(self._Entity__userdb[0])]
             if not cursor:
-                txn = self._environment.begin(write = True)
-                cursor = txn.cursor(db = self._user_db[0])
+                txn = self._Entity__env.begin(write = True)
+                cursor = txn.cursor(db = self._Entity__userdb[0])
             result = cursor.last()
             if result:
                 key = cursor.key()
                 value = cursor.pop(key)
-                if txn and self._versioned:
+                if txn and self._Entity__vers:
                     self.increment_version(use_transaction = txn)
-                elif not txn and self._versioned:
+                elif not txn and self._Entity__vers:
                     thread.local.changed.add(self)
             if txn:
                 txn.commit()
             if not result:
                 raise KeyError()
         except BaseException as exc:
-            if txn:
-                txn.abort()
-            abort(exc)
+            self._Entity__abort(exc, txn)
         finally:
             if txn and cursor:
                 cursor.close()
         return (
-            self.decode_key(key) if self.decode_key else key,
-            self.decode_value(value) if self.decode_value else value
+            self.decitemkey(key) if self.decitemkey else key,
+            self.decitemval(value) if self.decitemval else value
         )
 
     def pop(
         self,
         key: Any,
-        default: Any = _unspecified_class()
+        default: Any = _unspecified_class(),
+        /
     ) -> Any:
-        key = self.encode_key(key) if self.encode_key else key
+        key = self.encitemkey(key) if self.encitemkey else key
         try:
             txn = cursor = None
-            cursor = thread.local.cursors[id(self._user_db[0])]
+            cursor = thread.local.cursors[id(self._Entity__userdb[0])]
             if not cursor:
-                txn = self._environment.begin(write = True)
-                cursor = txn.cursor(db = self._user_db[0])
+                txn = self._Entity__env.begin(write = True)
+                cursor = txn.cursor(db = self._Entity__userdb[0])
             result = cursor.pop(key)
             if txn:
-                if result is not None and self._versioned:
+                if result is not None and self._Entity__vers:
                     self.increment_version(use_transaction = txn)
                 txn.commit()
-            elif result is not None and self._versioned:
+            elif result is not None and self._Entity__vers:
                 thread.local.changed.add(self)
         except BaseException as exc:
-            if txn:
-                txn.abort()
-            abort(exc)
+            self._Entity__abort(exc, txn)
         finally:
             if txn and cursor:
                 cursor.close()
@@ -234,49 +248,47 @@ class Dict(Sized, metaclass = DictMeta):
             raise KeyError()
         if result is None:
             return default
-        return self.decode_value(result) if self.decode_value else result
+        return self.decitemval(result) if self.decitemval else result
 
     def __delitem__(
         self,
-        key: Any
+        key: Any,
+        /
     ) -> None:
-        key = self. encode_key(key) if self.encode_key else key
+        key = self. encitemkey(key) if self.encitemkey else key
         try:
             implicit = False
             txn = thread.local.transaction
             if not txn:
                 implicit = True
-                txn = self._environment.begin(write = True)
-            result = txn.delete(key = key, db = self._user_db[0])
+                txn = self._Entity__env.begin(write = True)
+            result = txn.delete(key = key, db = self._Entity__userdb[0])
             if implicit:
-                if result and self._versioned:
+                if result and self._Entity__vers:
                     self.increment_version(use_transaction = txn)
                 txn.commit()
-            elif self._versioned:
+            elif self._Entity__vers:
                 thread.local.changed.add(self)
         except BaseException as exc:
-            if implicit and txn:
-                txn.abort()
-            abort(exc)
+            self._Entity__abort(exc, txn if implicit else None)
 
     def __contains__(
         self,
-        key: Any
+        key: Any,
+        /
     ) -> bool:
-        key = self.encode_key(key) if self.encode_key else key
+        key = self.encitemkey(key) if self.encitemkey else key
         try:
             txn = cursor = None
-            cursor = thread.local.cursors[id(self._user_db[0])]
+            cursor = thread.local.cursors[id(self._Entity__userdb[0])]
             if not cursor:
-                txn = self._environment.begin()
-                cursor = txn.cursor(db = self._user_db[0])
+                txn = self._Entity__env.begin()
+                cursor = txn.cursor(db = self._Entity__userdb[0])
             result = cursor.set_key(key)
             if txn:
                 txn.commit()
         except BaseException as exc:
-            if txn:
-                txn.abort()
-            abort(exc)
+            self._Entity__abort(exc, txn)
         finally:
             if txn and cursor:
                 cursor.close()
@@ -285,30 +297,29 @@ class Dict(Sized, metaclass = DictMeta):
     def __setitem__(
         self,
         key: Any,
-        value: Any
+        value: Any,
+        /
     ) -> None:
-        key = self.encode_key(key) if self.encode_key else key
-        value = self.encode_value(value) if self.encode_value else value
+        key = self.encitemkey(key) if self.encitemkey else key
+        value = self.encitemval(value) if self.encitemval else value
         try:
             implicit = False
             txn = thread.local.transaction
             if not txn:
                 implicit = True
-                txn = self._environment.begin(write = True)
+                txn = self._Entity__env.begin(write = True)
             result = txn.put(
                 key = key, value = value, overwrite = True, append = False,
-                db = self._user_db[0]
+                db = self._Entity__userdb[0]
             )
             if implicit:
-                if result and self._versioned:
+                if result and self._Entity__vers:
                     self.increment_version(use_transaction = txn)
                 txn.commit()
-            elif result and self._versioned:
+            elif result and self._Entity__vers:
                 thread.local.changed.add(self)
         except BaseException as exc:
-            if implicit and txn:
-                txn.abort()
-            abort(exc)
+            self._Entity__abort(exc, txn if implicit else None)
 
     def update(
         self,
@@ -323,40 +334,40 @@ class Dict(Sized, metaclass = DictMeta):
         if args and isinstance(args[0], dict):
             dict_items = [
                 (
-                    self.encode_key(key) if self.encode_key else key,
-                    self.encode_value(value) if self.encode_value else value
+                    self.encitemkey(key) if self.encitemkey else key,
+                    self.encitemval(value) if self.encitemval else value
                 )
                 for key, value in args[0].items()
             ]
         elif args and isinstance(args[0], collections.abc.MutableMapping):
             iter_items = [
                 (
-                    self.encode_key(key) if self.encode_key else key,
-                    self.encode_value(value) if self.encode_value else value
+                    self.encitemkey(key) if self.encitemkey else key,
+                    self.encitemval(value) if self.encitemval else value
                 )
                 for key, value in args[0].items()
             ]
         elif args:
             iter_items = [
                 (
-                    self.encode_key(key) if self.encode_key else key,
-                    self.encode_value(value) if self.encode_value else value
+                    self.encitemkey(key) if self.encitemkey else key,
+                    self.encitemval(value) if self.encitemval else value
                 )
                 for key, value in args[0]
             ]
         kwargs_items = [
             (
-                self.encode_key(key) if self.encode_key else key,
-                self.encode_value(value) if self.encode_value else value
+                self.encitemkey(key) if self.encitemkey else key,
+                self.encitemval(value) if self.encitemval else value
             )
             for key, value in kwargs.items()
         ]
         try:
             txn = cursor = None
-            cursor = thread.local.cursors[id(self._user_db[0])]
+            cursor = thread.local.cursors[id(self._Entity__userdb[0])]
             if not cursor:
-                txn = self._environment.begin(write = True)
-                cursor = txn.cursor(db = self._user_db[0])
+                txn = self._Entity__env.begin(write = True)
+                cursor = txn.cursor(db = self._Entity__userdb[0])
             if dict_items:
                 cons, add = cursor.putmulti(dict_items)
                 consumed += cons
@@ -370,15 +381,13 @@ class Dict(Sized, metaclass = DictMeta):
                 consumed += cons
                 added += add
             if txn:
-                if added and self._versioned:
+                if added and self._Entity__vers:
                     self.increment_version(use_transaction = txn)
                 txn.commit()
-            elif added and self._versioned:
+            elif added and self._Entity__vers:
                 thread.local.changed.add(self)
         except BaseException as exc:
-            if txn:
-                txn.abort()
-            abort(exc)
+            self._Entity__abort(exc, txn)
         finally:
             if txn and cursor:
                 cursor.close()

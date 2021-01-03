@@ -16,17 +16,26 @@ import parkit.constants as constants
 
 logger = logging.getLogger(__name__)
 
-def node_uid_from_pid_filename(filename: str, cluster_uid: str) -> str:
+def node_uid_from_pid_filename(
+    filename: str,
+    cluster_uid: str
+) -> str:
     return filename[
         len(constants.PID_FILENAME_PREFIX + cluster_uid + '-'): \
         -len(constants.PID_FILENAME_EXTENSION)
     ]
 
-def is_pid_filename(filename: str, cluster_uid: str) -> bool:
+def is_pid_filename(
+    filename: str,
+    cluster_uid: str
+) -> bool:
     return filename.startswith(constants.PID_FILENAME_PREFIX + cluster_uid) and \
     filename.endswith(constants.PID_FILENAME_EXTENSION)
 
-def create_pid_filepath(node_uid: str, cluster_uid: str) -> str:
+def create_pid_filepath(
+    node_uid: str,
+    cluster_uid: str
+) -> str:
     return os.path.join(
         tempfile.gettempdir(),
         constants.PID_FILENAME_PREFIX + cluster_uid + '-' + \
@@ -38,7 +47,10 @@ def terminate_all_nodes(cluster_uid: str) -> None:
     for node_uid, _ in running:
         terminate_node(node_uid, cluster_uid)
 
-def terminate_process(pid: int, process_termination_timeout: float) -> None:
+def terminate_process(
+    pid: int,
+    process_termination_timeout: float
+) -> None:
     if psutil.pid_exists(pid):
         try:
             proc = psutil.Process(pid)
@@ -113,12 +125,18 @@ def scan_nodes(cluster_uid: str) -> List[Tuple[str, List[str]]]:
 
     return running_processes
 
-def terminate_node(node_uid: str, cluster_uid: str) -> None:
+def terminate_node(
+    node_uid: str,
+    cluster_uid: str
+) -> None:
     pid_filepath = create_pid_filepath(node_uid, cluster_uid)
     daemoniker.send(pid_filepath, daemoniker.SIGINT)
 
 def launch_node(
-    node_uid: str, node_module: str, cluster_uid: str, *args: Any
+    node_uid: str,
+    node_module: str,
+    cluster_uid: str,
+    *args: Any
 ) -> None:
     module = importlib.import_module(node_module)
     path = os.path.abspath(module.__file__)
