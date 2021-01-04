@@ -190,30 +190,24 @@ class _Queue(Sized):
 
 class QueueMeta(ObjectMeta):
 
-    def __initialize_class__(cls):
+    def __initialize_class__(cls) -> None:
         if isinstance(cls.get_nowait, Missing):
             code, method =  mkgetnowait(fifo = True)
             setattr(cls, 'get_nowait', method)
             setattr(cls, 'get_nowaitcode', code)
-
-    def __call__(cls, *args, **kwargs):
-        cls.__initialize_class__()
-        return super().__call__(*args, **kwargs)
+        super().__initialize_class__()
 
 class Queue(_Queue, metaclass = QueueMeta):
     pass
 
 class LifoQueueMeta(ObjectMeta):
 
-    def __initialize_class__(cls):
+    def __initialize_class__(cls) -> None:
         if isinstance(cls.get_nowait, Missing):
             code, method =  mkgetnowait(fifo = False)
             setattr(cls, 'get_nowait', method)
             setattr(cls, 'get_nowaitcode', code)
-
-    def __call__(cls, *args, **kwargs):
-        cls.__initialize_class__()
-        return super().__call__(*args, **kwargs)
+        super().__initialize_class__()
 
 class LifoQueue(_Queue, metaclass = LifoQueueMeta):
     pass

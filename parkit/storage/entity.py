@@ -43,7 +43,7 @@ class Entity(metaclass = EntityMeta):
     __slots__ = {
         '__env', '__encname', '__namespace', '__namedb',
         '__descdb', '__versdb', '__attrdb', '__userdb',
-        '__vers', '__creator', '__uuidbytes', '__def'
+        '__vers', '__creator', '__uuidbytes'
     }
 
     def __init__(
@@ -91,8 +91,6 @@ class Entity(metaclass = EntityMeta):
                     on_create()
         else:
             raise ObjectNotFoundError()
-
-        self.__def = [name for name in dir(self) if not name[0] == '_']
 
     def __hash__(self) -> int:
         return int.from_bytes(self.__uuidbytes, 'little')

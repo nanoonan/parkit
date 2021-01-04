@@ -1,4 +1,11 @@
-
+#
+# parkit.environment needs to be imported first
+#
+from parkit.environment import (
+	is_pool_started,
+	start_pool,
+	stop_pool
+)
 from parkit.adapters import (
 	BytesLifoQueue,
 	BytesLog,
@@ -11,11 +18,6 @@ from parkit.adapters import (
 	ProcessQueue,
 	Queue
 )
-from parkit.environment import (
-	is_pool_started,
-	start_pool,
-	stop_pool
-)
 from parkit.exceptions import (
 	ContextError,
 	ObjectExistsError,
@@ -27,7 +29,7 @@ from parkit.storage import (
 	EntityMeta,
 	namespaces,
 	objects,
-	set_size,
+	set_namespace_size,
 	snapshot,
 	transaction
 )

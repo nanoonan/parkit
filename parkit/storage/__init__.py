@@ -6,9 +6,9 @@ from parkit.storage.context import (
 )
 from parkit.storage.entity import Entity
 from parkit.storage.entitymeta import EntityMeta
+from parkit.storage.environment import set_namespace_size
 from parkit.storage.missing import Missing
 from parkit.storage.namespace import (
 	namespaces,
-	objects,
-    set_size
+	objects
 )

@@ -159,7 +159,7 @@ def method(
 
 class LogMeta(ObjectMeta):
 
-    def __initialize_class__(cls):
+    def __initialize_class__(cls) -> None:
         if isinstance(cls.__contains__, Missing):
             code, method = mkcontains(return_bool = True)
             setattr(cls, '__contains__', method)
@@ -176,10 +176,7 @@ class LogMeta(ObjectMeta):
             code, method = mkiter(reverse = True)
             setattr(cls, '__reversed__', method)
             setattr(cls, '__reversed__code', code)
-
-    def __call__(cls, *args, **kwargs):
-        cls.__initialize_class__()
-        return super().__call__(*args, **kwargs)
+        super().__initialize_class__()
 
 class Log(Sized, metaclass = LogMeta):
 

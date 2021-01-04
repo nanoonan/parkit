@@ -1,6 +1,6 @@
 # pylint: disable = broad-except
+import cloudpickle
 import logging
-import pickle
 
 from typing import (
     Any, ByteString, Callable, cast, Generator, Optional, Tuple
@@ -23,16 +23,16 @@ class ObjectMeta(EntityMeta):
 class Object(Entity, metaclass = ObjectMeta):
 
     encattrkey: Callable[..., ByteString] = \
-    cast(Callable[..., ByteString], staticmethod(pickle.dumps))
+    cast(Callable[..., ByteString], staticmethod(cloudpickle.dumps))
 
     decattrkey: Callable[..., ByteString] = \
-    cast(Callable[..., ByteString], staticmethod(pickle.loads))
+    cast(Callable[..., ByteString], staticmethod(cloudpickle.loads))
 
     encattrval: Callable[..., ByteString] = \
-    cast(Callable[..., ByteString], staticmethod(pickle.dumps))
+    cast(Callable[..., ByteString], staticmethod(cloudpickle.dumps))
 
     decattrval: Callable[..., Any] = \
-    cast(Callable[..., Any], staticmethod(pickle.loads))
+    cast(Callable[..., Any], staticmethod(cloudpickle.loads))
 
     def __init__(
         self,
@@ -52,16 +52,15 @@ class Object(Entity, metaclass = ObjectMeta):
 
     def __getattr__(
         self,
-        key: Any,
+        key: str,
         /
     ) -> Any:
-        if key[0] == '_' or key in self._Entity__def:
+        if key == '_Entity__def' or key in self._Entity__def:
             raise AttributeError()
-        if key is not None:
-            key = self.encattrkey(key) if self.encattrkey else key
-            key = b''.join([self._Entity__uuidbytes, key])
-        else:
-            key = self._Entity__uuidbytes
+        key = b''.join([
+            self._Entity__uuidbytes,
+            self.encattrkey(key) if self.encattrkey else key
+        ])
         try:
             implicit = False
             cursor = None
@@ -91,14 +90,13 @@ class Object(Entity, metaclass = ObjectMeta):
         key: Any,
         /
     ) -> None:
-        if key[0] == '_' or key in self._Entity__def:
+        if not hasattr(self, '_Entity__def') or key in self._Entity__def:
             super().__delattr__(key)
             return
-        if key is not None:
-            key = self.encattrkey(key) if self.encattrkey else key
-            key = b''.join([self._Entity__uuidbytes, key])
-        else:
-            key = self._Entity__uuidbytes
+        key = b''.join([
+            self._Entity__uuidbytes,
+            self.encattrkey(key) if self.encattrkey else key
+        ])
         try:
             implicit = False
             txn = thread.local.transaction
@@ -114,6 +112,8 @@ class Object(Entity, metaclass = ObjectMeta):
                 thread.local.changed.add(self)
         except BaseException as exc:
             self._Entity__abort(exc, txn if implicit else None)
+        if not result:
+            raise AttributeError()
 
     def attributes(
         self
@@ -143,14 +143,13 @@ class Object(Entity, metaclass = ObjectMeta):
         value: Any,
         /
     ) -> None:
-        if key[0] == '_' or key in self._Entity__def:
+        if not hasattr(self, '_Entity__def') or key in self._Entity__def:
             super().__setattr__(key, value)
             return
-        if key is not None:
-            key = self.encattrkey(key) if self.encattrkey else key
-            key = b''.join([self._Entity__uuidbytes, key])
-        else:
-            key = self._Entity__uuidbytes
+        key = b''.join([
+            self._Entity__uuidbytes,
+            self.encattrkey(key) if self.encattrkey else key
+        ])
         value = self.encattrval(value) if self.encattrval else value
         try:
             implicit = False

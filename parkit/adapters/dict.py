@@ -67,7 +67,7 @@ def method(self) -> Generator[Union[Any, Tuple[Any, Any]], None, None]:
 
 class DictMeta(ObjectMeta):
 
-    def __initialize_class__(cls):
+    def __initialize_class__(cls) -> None:
         if isinstance(cls.__iter__, Missing):
             code, method = mkiter(keys = True, values = False)
             setattr(cls, '__iter__', method)
@@ -84,10 +84,7 @@ class DictMeta(ObjectMeta):
             code, method = mkiter(keys = True, values = True)
             setattr(cls, 'items', method)
             setattr(cls, 'itemscode', code)
-
-    def __call__(cls, *args, **kwargs):
-        cls.__initialize_class__()
-        return super().__call__(*args, **kwargs)
+        super().__initialize_class__()
 
 class Dict(Sized, metaclass = DictMeta):
 
