@@ -61,10 +61,10 @@ class _Queue(Sized):
 
     __slots__ = {'__maxsize'}
 
-    decitemval: Callable[..., Any] = \
+    decitemval: Optional[Callable[..., Any]] = \
     cast(Callable[..., Any], staticmethod(pickle.loads))
 
-    encitemval: Callable[..., ByteString] = \
+    encitemval: Optional[Callable[..., ByteString]] = \
     cast(Callable[..., ByteString], staticmethod(pickle.dumps))
 
     def __init__(
@@ -191,7 +191,7 @@ class _Queue(Sized):
 class QueueMeta(ObjectMeta):
 
     def __initialize_class__(cls) -> None:
-        if isinstance(cls.get_nowait, Missing):
+        if isinstance(cast(_Queue, cls).get_nowait, Missing):
             code, method =  mkgetnowait(fifo = True)
             setattr(cls, 'get_nowait', method)
             setattr(cls, 'get_nowaitcode', code)
@@ -203,7 +203,7 @@ class Queue(_Queue, metaclass = QueueMeta):
 class LifoQueueMeta(ObjectMeta):
 
     def __initialize_class__(cls) -> None:
-        if isinstance(cls.get_nowait, Missing):
+        if isinstance(cast(_Queue, cls).get_nowait, Missing):
             code, method =  mkgetnowait(fifo = False)
             setattr(cls, 'get_nowait', method)
             setattr(cls, 'get_nowaitcode', code)

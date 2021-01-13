@@ -7,7 +7,7 @@ import typing
 
 from typing import (
     Any, ByteString, Callable, cast, Generator, Iterable, MutableMapping,
-    Tuple, Union
+    Optional, Tuple, Union
 )
 
 import parkit.storage.threadlocal as thread
@@ -68,19 +68,19 @@ def method(self) -> Generator[Union[Any, Tuple[Any, Any]], None, None]:
 class DictMeta(ObjectMeta):
 
     def __initialize_class__(cls) -> None:
-        if isinstance(cls.__iter__, Missing):
+        if isinstance(cast(Dict, cls).__iter__, Missing):
             code, method = mkiter(keys = True, values = False)
             setattr(cls, '__iter__', method)
             setattr(cls, '__iter__code', code)
-        if isinstance(cls.keys, Missing):
+        if isinstance(cast(Dict, cls).keys, Missing):
             code, method = mkiter(keys = True, values = False)
             setattr(cls, 'keys', method)
             setattr(cls, 'keyscode', code)
-        if isinstance(cls.values, Missing):
+        if isinstance(cast(Dict, cls).values, Missing):
             code, method = mkiter(keys = False, values = True)
             setattr(cls, 'values', method)
             setattr(cls, 'valuescode', code)
-        if isinstance(cls.items, Missing):
+        if isinstance(cast(Dict, cls).items, Missing):
             code, method = mkiter(keys = True, values = True)
             setattr(cls, 'items', method)
             setattr(cls, 'itemscode', code)
@@ -88,16 +88,16 @@ class DictMeta(ObjectMeta):
 
 class Dict(Sized, metaclass = DictMeta):
 
-    decitemkey: Callable[..., Any] = \
+    decitemkey: Optional[Callable[..., Any]] = \
     cast(Callable[..., Any], staticmethod(pickle.loads))
 
-    encitemkey: Callable[..., ByteString] = \
+    encitemkey: Optional[Callable[..., ByteString]] = \
     cast(Callable[..., ByteString], staticmethod(pickle.dumps))
 
-    decitemval: Callable[..., Any] = \
+    decitemval: Optional[Callable[..., Any]] = \
     cast(Callable[..., Any], staticmethod(pickle.loads))
 
-    encitemval: Callable[..., ByteString] = \
+    encitemval: Optional[Callable[..., ByteString]] = \
     cast(Callable[..., ByteString], staticmethod(pickle.dumps))
 
     def __init__(

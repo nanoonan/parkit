@@ -170,7 +170,7 @@ def get_calling_modules() -> List[str]:
 
 class Timer():
 
-    def __init__(self, tag) -> None:
+    def __init__(self, tag = 'Timer') -> None:
         self._start_ns = 0
         self._tag = tag
 
@@ -179,7 +179,7 @@ class Timer():
 
     def stop(self) -> None:
         elapsed = time.time_ns() - self._start_ns
-        print(self._tag, 'elapsed: {0} ms'.format(elapsed / 1e6))
+        logger.info('{0} - elapsed: {1} ms'.format(self._tag, elapsed / 1e6))
 
     def __enter__(self) -> Any:
         self.start()

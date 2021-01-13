@@ -10,7 +10,7 @@ class EntityMeta(type):
 
     def __initialize_class__(cls) -> None:
         if not hasattr(cls, '_Entity__def'):
-            setattr(cls, '_Entity__def', dir(cls))
+            setattr(cls, '_Entity__def', set(dir(cls)))
 
     def __call__(cls, *args: Any, **kwargs: Dict[str, Any]) -> Any:
         obj = super().__call__(*args, **kwargs)

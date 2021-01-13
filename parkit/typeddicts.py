@@ -20,7 +20,6 @@ Profile = TypedDict(
         'LMDB_WRITE_MAP': bool,
         'LMDB_METASYNC': bool,
         'LMDB_MAP_ASYNC': bool,
-        'LMDB_MAP_SIZE': int,
         'LMDB_MAX_DBS': int,
         'LMDB_READONLY': bool,
         'LMDB_SYNC': bool,

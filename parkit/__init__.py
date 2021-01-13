@@ -34,4 +34,7 @@ from parkit.storage import (
 	transaction
 )
 from parkit.syslog import syslog
-from parkit.utility import Timer
+from parkit.utility import (
+	polling_loop,
+	Timer
+)

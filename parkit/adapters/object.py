@@ -22,16 +22,16 @@ class ObjectMeta(EntityMeta):
 
 class Object(Entity, metaclass = ObjectMeta):
 
-    encattrkey: Callable[..., ByteString] = \
+    encattrkey: Optional[Callable[..., ByteString]] = \
     cast(Callable[..., ByteString], staticmethod(cloudpickle.dumps))
 
-    decattrkey: Callable[..., ByteString] = \
+    decattrkey: Optional[Callable[..., ByteString]] = \
     cast(Callable[..., ByteString], staticmethod(cloudpickle.loads))
 
-    encattrval: Callable[..., ByteString] = \
+    encattrval: Optional[Callable[..., ByteString]] = \
     cast(Callable[..., ByteString], staticmethod(cloudpickle.dumps))
 
-    decattrval: Callable[..., Any] = \
+    decattrval: Optional[Callable[..., Any]] = \
     cast(Callable[..., Any], staticmethod(cloudpickle.loads))
 
     def __init__(
@@ -57,9 +57,9 @@ class Object(Entity, metaclass = ObjectMeta):
     ) -> Any:
         if key == '_Entity__def' or key in self._Entity__def:
             raise AttributeError()
-        key = b''.join([
+        binkey = b''.join([
             self._Entity__uuidbytes,
-            self.encattrkey(key) if self.encattrkey else key
+            self.encattrkey(key) if self.encattrkey else cast(ByteString, key)
         ])
         try:
             implicit = False
@@ -72,7 +72,7 @@ class Object(Entity, metaclass = ObjectMeta):
             else:
                 cursor = thread.local.cursors[id(self._Entity__attrdb)]
             result = None
-            if cursor.set_key(key):
+            if cursor.set_key(binkey):
                 result = cursor.value()
             if implicit:
                 txn.commit()
@@ -93,9 +93,9 @@ class Object(Entity, metaclass = ObjectMeta):
         if not hasattr(self, '_Entity__def') or key in self._Entity__def:
             super().__delattr__(key)
             return
-        key = b''.join([
+        binkey = b''.join([
             self._Entity__uuidbytes,
-            self.encattrkey(key) if self.encattrkey else key
+            self.encattrkey(key) if self.encattrkey else cast(ByteString, key)
         ])
         try:
             implicit = False
@@ -103,7 +103,7 @@ class Object(Entity, metaclass = ObjectMeta):
             if not txn:
                 implicit = True
                 txn = self._Entity__env.begin(write = True)
-            result = txn.delete(key = key, db = self._Entity__attrdb)
+            result = txn.delete(key = binkey, db = self._Entity__attrdb)
             if implicit:
                 if result and self._Entity__vers:
                     self.increment_version(use_transaction = txn)
@@ -117,7 +117,7 @@ class Object(Entity, metaclass = ObjectMeta):
 
     def attributes(
         self
-    ) -> Generator[Tuple[Any, Any], None, None]:
+    ) -> Generator[str, None, None]:
         with context(
             self._Entity__env, write = False,
             inherit = True, buffers = True
@@ -129,10 +129,7 @@ class Object(Entity, metaclass = ObjectMeta):
                     key = bytes(key) if isinstance(key, memoryview) else key
                     if key.startswith(self._Entity__uuidbytes):
                         key = key[len(self._Entity__uuidbytes):]
-                        yield (
-                            self.decattrkey(key) if self.decattrkey else key,
-                            self.decattrval(cursor.value()) if self.decattrval else cursor.value()
-                        )
+                        yield self.decattrkey(key) if self.decattrkey else key
                         if cursor.next():
                             continue
                     return
@@ -146,9 +143,9 @@ class Object(Entity, metaclass = ObjectMeta):
         if not hasattr(self, '_Entity__def') or key in self._Entity__def:
             super().__setattr__(key, value)
             return
-        key = b''.join([
+        binkey = b''.join([
             self._Entity__uuidbytes,
-            self.encattrkey(key) if self.encattrkey else key
+            self.encattrkey(key) if self.encattrkey else cast(ByteString, key)
         ])
         value = self.encattrval(value) if self.encattrval else value
         try:
@@ -158,7 +155,7 @@ class Object(Entity, metaclass = ObjectMeta):
                 implicit = True
                 txn = self._Entity__env.begin(write = True)
             assert txn.put(
-                key = key, value = value, overwrite = True, append = False,
+                key = binkey, value = value, overwrite = True, append = False,
                 db = self._Entity__attrdb
             )
             if implicit:

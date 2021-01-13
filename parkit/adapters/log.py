@@ -160,19 +160,20 @@ def method(
 class LogMeta(ObjectMeta):
 
     def __initialize_class__(cls) -> None:
-        if isinstance(cls.__contains__, Missing):
+        method: Any
+        if isinstance(cast(Log, cls).__contains__, Missing):
             code, method = mkcontains(return_bool = True)
             setattr(cls, '__contains__', method)
             setattr(cls, '__contains__code', code)
-        if isinstance(cls.index, Missing):
+        if isinstance(cast(Log, cls).index, Missing):
             code, method = mkcontains(return_bool = False)
             setattr(cls, 'index', method)
             setattr(cls, 'indexcode', code)
-        if isinstance(cls.__iter__, Missing):
+        if isinstance(cast(Log, cls).__iter__, Missing):
             code, method = mkiter(reverse = False)
             setattr(cls, '__iter__', method)
             setattr(cls, '__iter__code', code)
-        if isinstance(cls.__reversed__, Missing):
+        if isinstance(cast(Log, cls).__reversed__, Missing):
             code, method = mkiter(reverse = True)
             setattr(cls, '__reversed__', method)
             setattr(cls, '__reversed__code', code)
@@ -180,10 +181,10 @@ class LogMeta(ObjectMeta):
 
 class Log(Sized, metaclass = LogMeta):
 
-    decitemval: Callable[..., Any] = \
+    decitemval: Optional[Callable[..., Any]] = \
     cast(Callable[..., Any], staticmethod(pickle.loads))
 
-    encitemval: Callable[..., ByteString] = \
+    encitemval: Optional[Callable[..., ByteString]] = \
     cast(Callable[..., ByteString], staticmethod(pickle.dumps))
 
     def __init__(

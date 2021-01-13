@@ -44,9 +44,9 @@ LMDB_PROFILES = Profiles(
 		'LMDB_MAX_READERS': 1024
 	},
 	persistent = {
-		'LMDB_WRITE_MAP': False,
+		'LMDB_WRITE_MAP': True,
 		'LMDB_METASYNC': True,
-		'LMDB_MAP_ASYNC': False,
+		'LMDB_MAP_ASYNC': True,
 		'LMDB_MAX_DBS': 65536,
 		'LMDB_READONLY': False,
 		'LMDB_SYNC': True,

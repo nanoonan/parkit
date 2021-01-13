@@ -8,7 +8,7 @@ import struct
 import threading
 
 from typing import (
-    Dict, Optional, Tuple, Union
+    cast, Dict, Optional, Tuple, Union
 )
 
 import lmdb
@@ -17,6 +17,7 @@ import parkit.constants as constants
 import parkit.storage.threadlocal as thread
 
 from parkit.exceptions import (
+    ContextError,
     log,
     TransactionError
 )
@@ -83,7 +84,10 @@ def _init():
 
 _init()
 
-def _set_namespace_size_threadsafe(namespace: str, size: int) -> None:
+def _set_namespace_size_threadsafe(
+    namespace: str,
+    size: int
+) -> None:
     assert constants.SETTINGS_NAMESPACE in _environments
     with _environments_lock:
         env, _, _, _, _ = _environments[constants.SETTINGS_NAMESPACE]
@@ -101,13 +105,17 @@ def _set_namespace_size_threadsafe(namespace: str, size: int) -> None:
                 txn.abort()
             raise TransactionError() from exc
 
-def set_namespace_size(size: int, /, *, namespace: Optional[str] = None) -> None:
+def set_namespace_size(
+    size: int,
+    /, *,
+    namespace: Optional[str] = None
+) -> None:
     if thread.local.transaction:
         raise ContextError('Cannot set namespace size in a transaction')
     if size <= 0:
         raise ValueError('Size must be positive')
     namespace = resolve_namespace(namespace) if namespace else constants.DEFAULT_NAMESPACE
-    _set_namespace_size_threadsafe(namespace, size)
+    _set_namespace_size_threadsafe(cast(str, namespace), size)
 
 def get_database_threadsafe(key: Union[int, str]) -> Optional[lmdb._Database]:
     try:
@@ -155,6 +163,7 @@ Tuple[lmdb.Environment, lmdb._Database, lmdb._Database, lmdb._Database, lmdb._Da
                 # else:
                 #     profile = get_lmdb_profiles()['volatile']
                 profile = get_lmdb_profiles()['persistent']
+                print(env_path)
                 env = lmdb.open(
                     env_path, subdir = True, create = True,
                     writemap = profile['LMDB_WRITE_MAP'],
