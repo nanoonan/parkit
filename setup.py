@@ -9,7 +9,7 @@ setup(
   scripts=[],
   url='http://pypi.python.org/pypi/parkit/',
   license='LICENSE.txt',
-  description='Toolkit for parallel applications.',
+  description='Useful classes for inter-process programming.',
   long_description=open('README.md').read(),
   install_requires=[
     'mmh3',
