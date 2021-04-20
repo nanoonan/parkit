@@ -2,6 +2,7 @@
 import datetime
 import logging
 import struct
+import traceback
 import uuid
 
 from typing import (
@@ -321,6 +322,7 @@ class Entity(metaclass = EntityMeta):
             if txn and not use_transaction:
                 txn.commit()
         except BaseException as exc:
+            traceback.print_exc()
             self.__abort(exc, txn, False)
         finally:
             if txn and cursor:

@@ -2,6 +2,7 @@
 import collections
 import contextlib
 import logging
+import traceback
 
 from typing import (
     Any, ContextManager, Iterator
@@ -72,6 +73,7 @@ def context(
                         obj.increment_version()
             thread.local.transaction.commit()
     except BaseException as exc:
+        traceback.print_exc()
         if not inherit:
             thread.local.transaction.abort()
         raise exc

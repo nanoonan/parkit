@@ -1,12 +1,12 @@
 # Introduction
-The *parkit* package provides some basic Python-like objects that work within a multiprocessing environment. Dictionaries, queues, logs (append-only lists), custom objects, and processes are supported. All classes in *parkit* support concurrent access from multiple processes running in parallel. Data is stored in LMDB which offers good performance.
+The *parkit* package provides some basic Python classes that work within a multiprocessing environment. Dictionaries, queues, logs (append-only lists), custom objects, and processes are supported. All classes in *parkit* support concurrent access from multiple processes running in parallel. Class instances are persistent and data is stored in LMDB which offers good performance.
 
 The documentation is rather sparse at the moment since there is only one known user of this package, who happens to be the author.
 
 Questions or comments should be sent to: nanoonan at marvinsmind dot com.
 
 # Installation
-All LMDB databases are stored in a path identified by the PARKIT_INSTALLATION_PATH environment variable. Make sure to set this environment variable to an appropriate value before installing/running *parkit*. The default value for PARKIT_INSTALLATION_PATH is the local temporary path.
+All LMDB databases created by *parkit* are stored in a path identified by the PARKIT_INSTALLATION_PATH environment variable. Make sure to set this environment variable to an appropriate value before installing/running *parkit*. The default value for PARKIT_INSTALLATION_PATH is the local temporary path.
 
 To install the *parkit* package, open a command prompt, navigate to the top-level directory of the *parkit* git installation, and run the following command.
 ```
@@ -31,8 +31,39 @@ By default, each LMDB database is 1GB. You can change the amount of space reserv
 set_namespace_size(5368709120, namespace = 'default')
 ```
 
+# Transactions
+
+All changes to the state of a *parkit* object execute within a transactional context. By default, each operation executes in an
+implicit transactional context.
+
+```
+# An implicit transaction is started for this operation
+obj['foo'] = 'new value'
+```
+
+You can also start an explicit transaction to modify multiple objects within a single transaction. A transaction may only modify objects within the same namespace. To specify the namespace to start a transaction on, pass any object from that namespace to the transaction context manager.
+
+```
+obj1 = parkit.Dict('examples/mydict1')
+obj2 = parkit.Dict('examples/mydict2')
+
+# Update obj1 and obj2 in a single transaction
+with transaction(obj1):
+    obj1['foo'] = 'new value'
+    obj2['bar'] = 'new value'
+```
+
+If you only want to read from multiple objects assuring a consistent state, you can open a snapshot transaction.
+
+```
+# Read from obj1 and obj1 within a read-only transactional context
+with snapshot(obj1):
+    val1 = obj1['foo']
+    val2 = obj2['bar']
+```
+
 # Persistent Objects
-You can create classes with named instances that automatically persist their attributes.
+You can create custom classes with named instances that automatically persist their attributes.
 ```
 class MyClass(Object):
 
