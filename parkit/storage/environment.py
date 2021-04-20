@@ -80,7 +80,6 @@ def _init():
         if txn:
             txn.abort()
         raise TransactionError() from exc
-    print('completed init', _mapsizes, _environments)
 
 _init()
 
@@ -158,12 +157,7 @@ Tuple[lmdb.Environment, lmdb._Database, lmdb._Database, lmdb._Database, lmdb._Da
                         os.makedirs(env_path)
                     except FileExistsError:
                         pass
-                # if namespace.startswith(constants.PERSISTENT_NAMESPACE):
-                #     profile = get_lmdb_profiles()['persistent']
-                # else:
-                #     profile = get_lmdb_profiles()['volatile']
                 profile = get_lmdb_profiles()['persistent']
-                print(env_path)
                 env = lmdb.open(
                     env_path, subdir = True, create = True,
                     writemap = profile['LMDB_WRITE_MAP'],
