@@ -1,3 +1,9 @@
+Status | Value
+---|---
+**Quality** | Development
+**Tested** | Windows only
+**Requires** | Python 3.6+
+
 # Introduction
 The *parkit* package provides some basic Python classes that work within a multiprocessing environment. Dictionaries, queues, logs (append-only lists), custom objects, and processes are supported. All classes in *parkit* support concurrent access from multiple processes running in parallel. Class instances are persistent and data is stored in LMDB which offers good performance.
 
