@@ -88,7 +88,7 @@ def scan_nodes(cluster_uid: str) -> List[Tuple[str, List[str]]]:
     for proc in psutil.process_iter(['cmdline', 'pid', 'ppid']):
         try:
             cmdline = proc.info['cmdline']
-            if cmdline and any([tag in cmdline for tag in [cluster_uid]]):
+            if cmdline and any(tag in cmdline for tag in [cluster_uid]):
                 pid = str(proc.info['pid'])
                 if pid not in recorded_pids:
                     node_uid = cmdline[2]

@@ -3,8 +3,6 @@ import multiprocessing
 
 from parkit.typeddicts import Profiles
 
-MMH3_SEED: int = 42
-
 PID_FILENAME_PREFIX: str = 'parkit-'
 PID_FILENAME_EXTENSION: str = '.pid'
 

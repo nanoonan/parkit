@@ -1,4 +1,4 @@
-# pylint: disable = broad-except, non-parent-init-called, super-init-not-called
+# pylint: disable = broad-except, non-parent-init-called, super-init-not-called, no-self-use
 import logging
 import typing
 

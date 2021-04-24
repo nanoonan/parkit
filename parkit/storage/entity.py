@@ -152,7 +152,7 @@ class Entity(metaclass = EntityMeta):
     def __finish_bind_lmdb(self, descriptor: Descriptor) -> None:
         for dbuid, _ in descriptor['databases']:
             self.__userdb.append(get_database_threadsafe(dbuid))
-        if any([db is None for db in self.__userdb]):
+        if any(db is None for db in self.__userdb):
             with context(self.__env, write = True, inherit = True, buffers = False):
                 txn = thread.local.transaction
                 for index, (dbuid, properties) in enumerate(descriptor['databases']):

@@ -35,6 +35,6 @@ from parkit.storage import (
 )
 from parkit.syslog import syslog
 from parkit.utility import (
-	polling_loop,
-	Timer
+	getenv,
+	polling_loop
 )

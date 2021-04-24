@@ -1,10 +1,11 @@
 # pylint: disable = broad-except
-import cloudpickle
 import logging
 
 from typing import (
-    Any, ByteString, Callable, cast, Generator, Optional, Tuple
+    Any, ByteString, Callable, cast, Generator, Optional
 )
+
+import cloudpickle
 
 import parkit.storage.threadlocal as thread
 

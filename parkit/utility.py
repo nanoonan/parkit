@@ -16,10 +16,6 @@ from typing import (
     Any, Callable, Dict, Generator, List, Optional, Tuple
 )
 
-import mmh3
-
-import parkit.constants as constants
-
 logger = logging.getLogger(__name__)
 
 def compile_function(
@@ -94,10 +90,10 @@ def setenv(name: str, value: str) -> None:
 def resolve_path(path: str) -> Tuple[str, Optional[str]]:
     segments = [segment for segment in path.split('/') if len(segment)]
     if segments and \
-    all([
+    all(
         segment.isascii() and segment.replace('_', '').replace('-', '').isalnum()
         for segment in segments
-    ]):
+    ):
         return \
         (segments[0], None) if len(segments) == 1 else \
         (segments[-1], '/'.join(segments[0:-1]))
@@ -108,10 +104,10 @@ def resolve_namespace(namespace: Optional[str]) -> Optional[str]:
     if not namespace:
         return namespace
     segments = [segment for segment in namespace.split('/') if len(segment)]
-    if all([
+    if all(
         segment.isascii() and segment.replace('_', '').replace('-', '').isalnum()
         for segment in segments
-    ]):
+    ):
         return None if not segments else '/'.join(segments)
     raise ValueError('Namespace does not follow naming rules')
 
@@ -119,9 +115,6 @@ def create_string_digest(*segments: Any) -> str:
     return hashlib.sha1(
         ''.join([str(segment) for segment in segments]).encode('utf-8')
     ).hexdigest()
-
-def mmh3_hash(encoded: bytes) -> int:
-    return mmh3.hash128(encoded, constants.MMH3_SEED, True, signed = False)
 
 def polling_loop(
     interval: float,
@@ -167,30 +160,3 @@ def get_calling_modules() -> List[str]:
                 modules.append(name)
         frame = frame.f_back
     return modules
-
-class Timer():
-
-    def __init__(self, tag = 'Timer') -> None:
-        self._start_ns = 0
-        self._tag = tag
-
-    def start(self) -> None:
-        self._start_ns = time.time_ns()
-
-    def stop(self) -> None:
-        elapsed = time.time_ns() - self._start_ns
-        logger.info('{0} - elapsed: {1} ms'.format(self._tag, elapsed / 1e6))
-
-    def __enter__(self) -> Any:
-        self.start()
-        return self
-
-    def __exit__(
-        self,
-        exc_type: type,
-        exc_value: Any,
-        exc_traceback: Any
-    ) -> None:
-        self.stop()
-        if exc_value is not None:
-            raise exc_value
