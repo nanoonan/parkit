@@ -9,13 +9,13 @@ from typing import (
 
 import parkit.constants as constants
 
-from parkit.pool import (
+from .pool import (
     launch_node,
     scan_nodes,
     terminate_all_nodes
 )
-from parkit.profiles import get_lmdb_profiles
-from parkit.utility import (
+from .profiles import get_lmdb_profiles
+from .utility import (
     checkenv,
     create_string_digest,
     envexists,
