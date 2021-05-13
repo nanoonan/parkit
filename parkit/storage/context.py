@@ -64,6 +64,8 @@ def context(
         thread.local.arguments.append((inherit, write))
         try:
             yield thread.local.transaction
+        except GeneratorExit:
+            pass
         finally:
             inherit, write = thread.local.arguments.pop()
         if not inherit:
