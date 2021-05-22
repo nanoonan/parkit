@@ -6,7 +6,7 @@ import subprocess
 import tempfile
 
 from typing import (
-    Any, Dict, List, Tuple
+    Any, Dict, List, Optional, Tuple
 )
 
 import daemoniker
@@ -49,7 +49,7 @@ def terminate_all_nodes(cluster_uid: str) -> None:
 
 def terminate_process(
     pid: int,
-    process_termination_timeout: float
+    process_termination_timeout: float = 1
 ) -> None:
     if psutil.pid_exists(pid):
         try:
@@ -128,9 +128,15 @@ def scan_nodes(cluster_uid: str) -> List[Tuple[str, List[str]]]:
 def terminate_node(
     node_uid: str,
     cluster_uid: str
-) -> None:
-    pid_filepath = create_pid_filepath(node_uid, cluster_uid)
-    daemoniker.send(pid_filepath, daemoniker.SIGINT)
+) -> Optional[int]:
+    try:
+        pid_filepath = create_pid_filepath(node_uid, cluster_uid)
+        with open(pid_filepath, 'rt') as file:
+            pid = file.read().strip()
+        daemoniker.send(pid_filepath, daemoniker.SIGINT)
+        return int(pid)
+    except OSError:
+        return None
 
 def launch_node(
     node_uid: str,

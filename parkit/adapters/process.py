@@ -1,9 +1,9 @@
-# pylint: disable = broad-except, non-parent-init-called, super-init-not-called, no-self-use
+# pylint: disable = broad-except, non-parent-init-called, too-many-public-methods, super-init-not-called, no-self-use, dangerous-default-value
 import logging
 import typing
 
 from typing import (
-    Any, Callable, Optional, Tuple
+    Any, Callable, Iterator, List, Optional, Tuple, Union
 )
 
 import cloudpickle
@@ -14,9 +14,15 @@ import parkit.storage.threadlocal as thread
 
 from parkit.adapters.dict import Dict
 from parkit.adapters.queue import Queue
-from parkit.pool import terminate_node
+from parkit.pool import (
+    launch_node,
+    scan_nodes,
+    terminate_all_nodes,
+    terminate_node
+)
 from parkit.storage import (
     Entity,
+    objects,
     snapshot,
     transaction
 )
@@ -49,6 +55,7 @@ class Process(Dict):
         create: bool = True,
         bind: bool = True,
         versioned: bool = False,
+        typecheck: bool = True,
         target: Optional[Callable[..., Any]] = None,
         args: Optional[Tuple[Any, ...]] = None,
         kwargs: Optional[typing.Dict[str, Any]] = None
@@ -76,39 +83,81 @@ class Process(Dict):
 
         Entity.__init__(
             self, name, properties = [{}, {}], namespace = constants.PROCESS_NAMESPACE,
-            create = create, bind = bind, versioned = versioned, on_create = on_create
+            create = create, bind = bind, versioned = versioned, on_create = on_create,
+            typecheck = typecheck
         )
 
+    @staticmethod
+    def killall() -> None:
+        cluster_uid = create_string_digest(getenv(constants.STORAGE_PATH_ENVNAME))
+        terminate_all_nodes(cluster_uid)
+
+    @staticmethod
+    def get_pool_size() -> int:
+        state = Dict(constants.PROCESS_STATE_PATH)
+        if 'pool_size' not in state:
+            state['pool_size'] = getenv(constants.PROCESS_POOL_SIZE_ENVNAME, int)
+        return state['pool_size']
+
+    @staticmethod
+    def set_pool_size(size: int) -> None:
+        state = Dict(constants.PROCESS_STATE_PATH)
+        state['pool_size'] = size
+
+    @staticmethod
+    def clean(
+        status_filter: Optional[Union[str, List[str]]] = ['finished', 'crashed', 'failed']
+    ) -> None:
+        paths = [path for path, _ in objects(constants.PROCESS_NAMESPACE)]
+        for path in paths:
+            process = Process(path, typecheck = False)
+            if status_filter is None or \
+            (isinstance(status_filter, list) and process.status in status_filter) or \
+            process.status == status_filter:
+                process.drop()
+
+    @staticmethod
+    def dir(
+        status_filter: Optional[Union[str, List[str]]] = 'running'
+    ) -> Iterator[Any]:
+        paths = [path for path, _ in objects(constants.PROCESS_NAMESPACE)]
+        for path in paths:
+            process = Process(path, typecheck = False)
+            if status_filter is None or \
+            (isinstance(status_filter, list) and process.status in status_filter) or \
+            process.status == status_filter:
+                yield process
+
     @property
-    def authkey(self):
+    def authkey(self) -> None:
         return None
 
     @property
-    def sentinel(self):
+    def sentinel(self) -> None:
         return None
 
     @property
-    def pid(self):
+    def pid(self) -> Optional[int]:
         return self.__get('pid')
 
     @property
-    def result(self):
+    def result(self) -> Any:
         return self.__get('result')
 
     @property
-    def error(self):
+    def error(self) -> Any:
         return self.__get('error')
 
     @property
-    def is_alive(self):
+    def is_alive(self) -> bool:
         return self.exists and self.status not in {'finished', 'failed', 'crashed'}
 
     @property
-    def daemon(self):
+    def daemon(self) -> bool:
         return True
 
     @property
-    def exitcode(self):
+    def exitcode(self) -> Optional[int]:
         status = self.status
         if status in {'crashed', 'failed'}:
             return 1
@@ -123,11 +172,14 @@ class Process(Dict):
             if status != 'running':
                 return status
             pid = self.__get('pid')
-            if psutil.pid_exists(pid):
-                proc = psutil.Process(pid)
-                cmdline = proc.cmdline()
-                if self.__get('node_uid') in cmdline:
-                    return 'running'
+            try:
+                if psutil.pid_exists(pid):
+                    proc = psutil.Process(pid)
+                    cmdline = proc.cmdline()
+                    if self.__get('node_uid') in cmdline:
+                        return 'running'
+            except psutil.NoSuchProcess:
+                pass
             return 'crashed'
 
     def __get(
@@ -170,16 +222,18 @@ class Process(Dict):
         except BaseException as exc:
             self._Entity__abort(exc, txn if implicit else None)
 
-    def run(self, _: Any = None) -> Any:
+    def run(self) -> Any:
         target = self.__get('target')
         args = self.__get('args')
         kwargs = self.__get('kwargs')
         if target:
+            logger.error('process run')
             return target(*args, **kwargs)
         return None
 
     def start(self) -> None:
         if self.__get('status') == 'created':
+            start_monitor()
             with transaction(self):
                 if self.__get('status') == 'created':
                     queue = ProcessQueue(constants.PROCESS_QUEUE_PATH)
@@ -191,12 +245,13 @@ class Process(Dict):
         timeout: Optional[float] = None,
         polling_interval: Optional[float] = None
     ):
+        default_polling_interval = getenv(constants.ADAPTER_POLLING_INTERVAL_ENVNAME, float)
         for _ in polling_loop(
             polling_interval if polling_interval is not None else \
-            constants.DEFAULT_ADAPTER_POLLING_INTERVAL,
+            default_polling_interval,
             timeout = timeout
         ):
-            if self.status in {'crashed', 'finished', 'faile'}:
+            if self.status in {'crashed', 'finished', 'failed'}:
                 break
 
     def close(self) -> None:
@@ -210,7 +265,7 @@ class Process(Dict):
             try:
                 node_uid = self.__get('node_uid')
                 if node_uid and self.status == 'running':
-                    cluster_uid = create_string_digest(getenv(constants.INSTALL_PATH_ENVNAME))
+                    cluster_uid = create_string_digest(getenv(constants.STORAGE_PATH_ENVNAME))
                     terminate_node(node_uid, cluster_uid)
             except FileNotFoundError:
                 pass
@@ -220,8 +275,19 @@ class Process(Dict):
             try:
                 node_uid = self.__get('node_uid')
                 if node_uid and self.status == 'running':
-                    cluster_uid = create_string_digest(getenv(constants.INSTALL_PATH_ENVNAME))
+                    cluster_uid = create_string_digest(getenv(constants.STORAGE_PATH_ENVNAME))
                     terminate_node(node_uid, cluster_uid)
             except FileNotFoundError:
                 pass
             Entity.drop(self)
+
+def start_monitor() -> None:
+    cluster_uid = create_string_digest(getenv(constants.STORAGE_PATH_ENVNAME))
+    running = scan_nodes(cluster_uid)
+    if [node_uid for node_uid, _ in running if node_uid == 'monitor']:
+        return
+    launch_node(
+        'monitor',
+        'parkit.pool.monitordaemon',
+        cluster_uid
+    )

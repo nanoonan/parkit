@@ -2,7 +2,7 @@
 import logging
 
 from typing import (
-    Any, ByteString, Callable, cast, Generator, Optional
+    Any, ByteString, Callable, cast, Iterator, Optional
 )
 
 import cloudpickle
@@ -118,7 +118,7 @@ class Object(Entity, metaclass = ObjectMeta):
 
     def attributes(
         self
-    ) -> Generator[str, None, None]:
+    ) -> Iterator[str]:
         with context(
             self._Entity__env, write = False,
             inherit = True, buffers = True

@@ -5,6 +5,7 @@ import functools
 import logging
 import os
 import struct
+import tempfile
 import threading
 
 from typing import (
@@ -24,8 +25,10 @@ from parkit.exceptions import (
 from parkit.profiles import get_lmdb_profiles
 from parkit.typeddicts import LMDBProperties
 from parkit.utility import (
+    envexists,
     getenv,
-    resolve_namespace
+    resolve_namespace,
+    setenv
 )
 
 logger = logging.getLogger(__name__)
@@ -41,7 +44,10 @@ _databases_lock: threading.Lock = threading.Lock()
 
 _databases: Dict[Union[int, str], lmdb._Database] = {}
 
-_mapsizes = collections.defaultdict(lambda: constants.DEFAULT_LMDB_MAP_SIZE)
+_mapsizes: Dict[str, int] = \
+collections.defaultdict(lambda: get_lmdb_profiles()['default']['LMDB_INITIAL_MAP_SIZE'])
+
+_settings_initialized: bool = False
 
 def close_environments_atexit() -> None:
     with _environments_lock:
@@ -53,8 +59,12 @@ def close_environments_atexit() -> None:
 
 atexit.register(close_environments_atexit)
 
-def _init():
-    install_path = os.path.abspath(getenv(constants.INSTALL_PATH_ENVNAME))
+def initialize_settings():
+
+    if _settings_initialized:
+        return
+
+    install_path = os.path.abspath(getenv(constants.STORAGE_PATH_ENVNAME))
     env_path = os.path.join(install_path, *constants.SETTINGS_NAMESPACE.split('/'))
     if os.path.exists(env_path):
         if not os.path.isdir(env_path):
@@ -67,21 +77,24 @@ def _init():
     env = lmdb.open(env_path, subdir = True, create = True)
     _environments[constants.SETTINGS_NAMESPACE] = (env, None, None, None, None)
     try:
+        cache = {}
         txn = None
         txn = env.begin(write = True)
         cursor = txn.cursor()
         if cursor.first():
             while True:
-                _mapsizes[cursor.key().decode('utf-8')] = struct.unpack('@N', cursor.value())[0]
+                cache[cursor.key().decode('utf-8')] = struct.unpack('@N', cursor.value())[0]
                 if not cursor.next():
                     break
         txn.commit()
+        for key, value in cache.items():
+            _mapsizes[key] = value
     except BaseException as exc:
         if txn:
             txn.abort()
         raise TransactionError() from exc
 
-_init()
+    _settings_initialzed = True
 
 def _set_namespace_size_threadsafe(
     namespace: str,
@@ -89,6 +102,7 @@ def _set_namespace_size_threadsafe(
 ) -> None:
     assert constants.SETTINGS_NAMESPACE in _environments
     with _environments_lock:
+        initialize_settings()
         env, _, _, _, _ = _environments[constants.SETTINGS_NAMESPACE]
         try:
             txn = None
@@ -103,6 +117,15 @@ def _set_namespace_size_threadsafe(
             if txn:
                 txn.abort()
             raise TransactionError() from exc
+
+def get_namespace_size(
+    namespace: Optional[str] = None
+) -> int:
+    namespace = cast(
+        str,
+        resolve_namespace(namespace) if namespace else constants.DEFAULT_NAMESPACE
+    )
+    return _mapsizes[namespace]
 
 def set_namespace_size(
     size: int,
@@ -147,8 +170,23 @@ Tuple[lmdb.Environment, lmdb._Database, lmdb._Database, lmdb._Database, lmdb._Da
     if namespace not in _environments:
         with _environments_lock:
             if namespace not in _environments:
-                install_path = os.path.abspath(getenv(constants.INSTALL_PATH_ENVNAME))
-                env_path = os.path.join(install_path, *namespace.split('/'))
+                if not envexists(constants.STORAGE_PATH_ENVNAME):
+                    try:
+                        os.makedirs(
+                            os.path.join(
+                                tempfile.gettempdir(),
+                                constants.PARKIT_TEMP_INSTALLATION_DIRNAME
+                            )
+                        )
+                    except FileExistsError:
+                        pass
+                    storage_path = os.path.abspath(os.path.join(
+                        tempfile.gettempdir(), constants.PARKIT_TEMP_INSTALLATION_DIRNAME
+                    ))
+                    setenv(constants.STORAGE_PATH_ENVNAME, storage_path)
+                else:
+                    storage_path = getenv(constants.STORAGE_PATH_ENVNAME)
+                env_path = os.path.join(storage_path, *namespace.split('/'))
                 if os.path.exists(env_path):
                     if not os.path.isdir(env_path):
                         raise ValueError('Namespace path exists but is not a directory')
@@ -157,7 +195,8 @@ Tuple[lmdb.Environment, lmdb._Database, lmdb._Database, lmdb._Database, lmdb._Da
                         os.makedirs(env_path)
                     except FileExistsError:
                         pass
-                profile = get_lmdb_profiles()['persistent']
+                initialize_settings()
+                profile = get_lmdb_profiles()['default']
                 env = lmdb.open(
                     env_path, subdir = True, create = True,
                     writemap = profile['LMDB_WRITE_MAP'],

@@ -1,3 +1,4 @@
+# pylint: disable = no-value-for-parameter
 import logging
 
 from typing import (
@@ -17,6 +18,6 @@ class EntityMeta(type):
         *args: Any,
         **kwargs: Dict[str, Any]
     ) -> Any:
-        obj = super().__call__(*args, **kwargs)
         cls.__initialize_class__()
+        obj = super().__call__(*args, **kwargs)
         return obj

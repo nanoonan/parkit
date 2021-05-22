@@ -18,8 +18,10 @@ from parkit.exceptions import (
     TransactionError
 )
 from parkit.storage import transaction
-from parkit.utility import polling_loop
-
+from parkit.utility import (
+    getenv,
+    polling_loop
+)
 logger = logging.getLogger(__name__)
 
 if __name__ == '__main__':
@@ -29,18 +31,16 @@ if __name__ == '__main__':
         pid_filepath = None
         node_uid = None
         cluster_uid = None
-        polling_interval = None
 
         with daemoniker.Daemonizer() as (is_setup, daemonizer):
 
             if is_setup:
                 node_uid = sys.argv[1]
                 cluster_uid = sys.argv[2]
-                polling_interval = float(sys.argv[3])
                 pid_filepath = create_pid_filepath(node_uid, cluster_uid)
 
-            is_parent, node_uid, cluster_uid, pid_filepath, polling_interval = daemonizer(
-                pid_filepath, node_uid, cluster_uid, pid_filepath, polling_interval
+            is_parent, node_uid, cluster_uid, pid_filepath = daemonizer(
+                pid_filepath, node_uid, cluster_uid, pid_filepath
             )
 
             if is_parent:
@@ -51,10 +51,9 @@ if __name__ == '__main__':
 
         process_queue = ProcessQueue(constants.PROCESS_QUEUE_PATH)
 
-        for _ in polling_loop(
-            polling_interval if polling_interval is not None else \
-            constants.DEFAULT_TASKER_POLLING_INTERVAL
-        ):
+        polling_interval = getenv(constants.TASKER_POLLING_INTERVAL_ENVNAME, float)
+
+        for _ in polling_loop(polling_interval):
             while True:
                 with transaction(constants.PROCESS_NAMESPACE):
                     try:
@@ -68,7 +67,7 @@ if __name__ == '__main__':
                     process._Process__put('pid', os.getpid())
                 try:
                     result = exc_value = None
-                    result = process.run(process)
+                    result = process.run()
                 except Exception as exc:
                     logger.exception('Task daemon caught user error')
                     exc_value = exc

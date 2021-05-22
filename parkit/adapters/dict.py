@@ -6,7 +6,7 @@ import types
 import typing
 
 from typing import (
-    Any, ByteString, Callable, cast, Generator, Iterable, MutableMapping,
+    Any, ByteString, Callable, cast, Iterable, Iterator, MutableMapping,
     Optional, Tuple, Union
 )
 
@@ -31,9 +31,9 @@ _unspecified_class = types.new_class('__unspecified__')
 def mkiter(
     keys: bool = True,
     values: bool = False
-) -> Tuple[str, Callable[..., Generator[Union[Any, Tuple[Any, Any]], None, None]]]:
+) -> Tuple[str, Callable[..., Iterator[Union[Any, Tuple[Any, Any]]]]]:
     code = """
-def method(self) -> Generator[Union[Any, Tuple[Any, Any]], None, None]:
+def method(self) -> Iterator[Union[Any, Tuple[Any, Any]], None, None]:
     with context(
         self._Entity__env, write = False,
         inherit = True, buffers = True
@@ -389,10 +389,10 @@ class Dict(Sized, metaclass = DictMeta):
             if txn and cursor:
                 cursor.close()
 
-    __iter__: Callable[..., Generator[Union[Any, Tuple[Any, Any]], None, None]] = Missing()
+    __iter__: Callable[..., Iterator[Union[Any, Tuple[Any, Any]]]] = Missing()
 
-    keys: Callable[..., Generator[Union[Any, Tuple[Any, Any]], None, None]] = Missing()
+    keys: Callable[..., Iterator[Union[Any, Tuple[Any, Any]]]] = Missing()
 
-    values: Callable[..., Generator[Union[Any, Tuple[Any, Any]], None, None]] = Missing()
+    values: Callable[..., Iterator[Union[Any, Tuple[Any, Any]]]] = Missing()
 
-    items: Callable[..., Generator[Union[Any, Tuple[Any, Any]], None, None]] = Missing()
+    items: Callable[..., Iterator[Union[Any, Tuple[Any, Any]]]] = Missing()

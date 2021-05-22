@@ -1,11 +1,5 @@
-#
-# parkit.environment needs to be imported first
-#
-from parkit.environment import (
-	is_pool_started,
-	start_pool,
-	stop_pool
-)
+import parkit.environment
+
 from parkit.adapters import (
 	BytesLifoQueue,
 	BytesLog,
@@ -15,7 +9,6 @@ from parkit.adapters import (
 	Log,
 	Object,
 	Process,
-	ProcessQueue,
 	Queue
 )
 from parkit.exceptions import (
@@ -25,8 +18,7 @@ from parkit.exceptions import (
 	TransactionError
 )
 from parkit.storage import (
-	Entity,
-	EntityMeta,
+	get_namespace_size,
 	namespaces,
 	objects,
 	set_namespace_size,
@@ -35,6 +27,8 @@ from parkit.storage import (
 )
 from parkit.syslog import syslog
 from parkit.utility import (
+	envexists,
 	getenv,
-	polling_loop
+	polling_loop,
+	setenv
 )

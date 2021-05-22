@@ -21,6 +21,7 @@ from parkit.storage import (
 )
 from parkit.utility import (
     compile_function,
+    getenv,
     polling_loop,
     resolve_path
 )
@@ -104,11 +105,12 @@ class _Queue(Sized):
         timeout: Optional[float] = None,
         polling_interval: Optional[float] = None
     ):
+        default_polling_interval = getenv(constants.ADAPTER_POLLING_INTERVAL_ENVNAME, float)
         if self.__maxsize != math.inf and block and (timeout is None or timeout > 0):
             try:
                 for _ in polling_loop(
                     polling_interval if polling_interval is not None else \
-                    constants.DEFAULT_ADAPTER_POLLING_INTERVAL,
+                    default_polling_interval,
                     timeout = timeout
                 ):
                     if self.__len__() < self.__maxsize:
@@ -166,9 +168,10 @@ class _Queue(Sized):
         if not block or timeout is not None and timeout <= 0:
             return self.get_nowait()
         try:
+            default_polling_interval = getenv(constants.ADAPTER_POLLING_INTERVAL_ENVNAME, float)
             for _ in polling_loop(
                 polling_interval if polling_interval is not None else \
-                constants.DEFAULT_ADAPTER_POLLING_INTERVAL,
+                default_polling_interval,
                 timeout = timeout
             ):
                 try:
@@ -177,6 +180,7 @@ class _Queue(Sized):
                     pass
         except TimeoutError as exc:
             raise queue.Empty() from exc
+        return None
 
     qsize: Callable[..., int] = Sized.__len__
 

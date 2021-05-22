@@ -13,7 +13,7 @@ import time
 import types
 
 from typing import (
-    Any, Callable, Dict, Generator, List, Optional, Tuple
+    Any, Callable, Dict, Iterator, List, Optional, Tuple
 )
 
 logger = logging.getLogger(__name__)
@@ -65,8 +65,8 @@ def getenv(name: str, vartype: Optional[type] = None) -> Any:
         return value
     if vartype is bool:
         return bool(distutils.util.strtobool(value))
-    if vartype is int:
-        return type(value)
+    if vartype in [int, float]:
+        return vartype(value)
     raise TypeError()
 
 def checkenv(name: str, vartype: type) -> bool:
@@ -121,7 +121,7 @@ def polling_loop(
     max_iterations: Optional[int] = None,
     initial_offset: Optional[float] = None,
     timeout: Optional[float] = None
-) -> Generator[int, None, None]:
+) -> Iterator[int]:
     interval = interval if interval is None or interval > 0 else 0
     max_iterations = max_iterations if max_iterations is None or max_iterations > 0 else 0
     if timeout is not None and timeout <= 0:

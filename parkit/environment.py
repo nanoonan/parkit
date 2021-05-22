@@ -1,23 +1,13 @@
 import logging
-import multiprocessing
 import os
-import tempfile
 
-from typing import (
-    cast, Optional
-)
+from typing import cast
 
 import parkit.constants as constants
 
-from .pool import (
-    launch_node,
-    scan_nodes,
-    terminate_all_nodes
-)
 from .profiles import get_lmdb_profiles
 from .utility import (
     checkenv,
-    create_string_digest,
     envexists,
     getenv,
     setenv
@@ -25,59 +15,34 @@ from .utility import (
 
 logger = logging.getLogger(__name__)
 
-def is_pool_started() -> bool:
-    cluster_uid = create_string_digest(getenv(constants.INSTALL_PATH_ENVNAME))
-    return len(scan_nodes(cluster_uid)) > 0
-
-def start_pool(
-    size: int = multiprocessing.cpu_count(),
-    monitor_polling_interval: float = constants.DEFAULT_MONITOR_POLLING_INTERVAL,
-    tasker_polling_interval: float = constants.DEFAULT_TASKER_POLLING_INTERVAL
-) -> bool:
-    cluster_uid = create_string_digest(getenv(constants.INSTALL_PATH_ENVNAME))
-    running = scan_nodes(cluster_uid)
-    if [node_uid for node_uid, _ in running if node_uid == 'monitor']:
-        return False
-    launch_node(
-        'monitor',
-        'parkit.pool.monitordaemon',
-        cluster_uid, monitor_polling_interval, tasker_polling_interval, size
+if envexists(constants.STORAGE_PATH_ENVNAME):
+    setenv(
+        constants.STORAGE_PATH_ENVNAME,
+        os.path.abspath(getenv(constants.STORAGE_PATH_ENVNAME))
     )
-    return True
 
-def stop_pool() -> bool:
-    cluster_uid = create_string_digest(getenv(constants.INSTALL_PATH_ENVNAME))
-    terminate_all_nodes(cluster_uid)
-    return True
+for name, default in get_lmdb_profiles()['default'].copy().items():
+    if envexists(name):
+        if checkenv(name, type(default)):
+            cast(dict, get_lmdb_profiles())['default'][name] = getenv(name, type(default))
 
-def _set_environment(install_path: Optional[str] = None) -> None:
-    path = cast(
-        str,
-        os.getenv(constants.INSTALL_PATH_ENVNAME) if not install_path else install_path
+if not envexists(constants.PROCESS_POOL_SIZE_ENVNAME):
+    setenv(constants.PROCESS_POOL_SIZE_ENVNAME, str(constants.DEFAULT_PROCESS_POOL_SIZE))
+
+if not envexists(constants.MONITOR_POLLING_INTERVAL_ENVNAME):
+    setenv(
+        constants.MONITOR_POLLING_INTERVAL_ENVNAME,
+        str(constants.DEFAULT_MONITOR_POLLING_INTERVAL)
     )
-    path = os.path.abspath(path)
-    if os.path.exists(path):
-        if not os.path.isdir(path):
-            raise ValueError('Install_path is not a directory')
-    else:
-        os.makedirs(path)
-    for name, default in get_lmdb_profiles()['persistent'].copy().items():
-        if envexists(name):
-            if checkenv(name, type(default)):
-                cast(dict, get_lmdb_profiles())['persistent'][name] = getenv(name, type(default))
-    setenv(constants.INSTALL_PATH_ENVNAME, path)
 
-if envexists(constants.INSTALL_PATH_ENVNAME):
-    _set_environment(install_path = getenv(constants.INSTALL_PATH_ENVNAME))
-else:
-    try:
-        os.makedirs(
-            os.path.join(tempfile.gettempdir(), constants.PARKIT_TEMP_INSTALLATION_DIRNAME)
-        )
-    except FileExistsError:
-        pass
-    _set_environment(
-        install_path = os.path.join(
-            tempfile.gettempdir(), constants.PARKIT_TEMP_INSTALLATION_DIRNAME
-        )
+if not envexists(constants.TASKER_POLLING_INTERVAL_ENVNAME):
+    setenv(
+        constants.TASKER_POLLING_INTERVAL_ENVNAME,
+        str(constants.DEFAULT_TASKER_POLLING_INTERVAL)
+    )
+
+if not envexists(constants.ADAPTER_POLLING_INTERVAL_ENVNAME):
+    setenv(
+        constants.ADAPTER_POLLING_INTERVAL_ENVNAME,
+        str(constants.DEFAULT_ADAPTER_POLLING_INTERVAL)
     )

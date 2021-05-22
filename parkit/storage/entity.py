@@ -56,6 +56,7 @@ class Entity(metaclass = EntityMeta):
         create: bool = True,
         bind: bool = True,
         versioned: bool = False,
+        typecheck: bool = True,
         on_create: Optional[Callable[[], None]] = None,
         custom_descriptor: Optional[Dict[str, Any]] = None
     ) -> None:
@@ -81,7 +82,7 @@ class Entity(metaclass = EntityMeta):
         self.__uuidbytes: bytes
 
         if bind:
-            descriptor = self.__try_bind_lmdb()
+            descriptor = self.__try_bind_lmdb(typecheck)
 
         if descriptor:
             self.__finish_bind_lmdb(descriptor)
@@ -132,7 +133,10 @@ class Entity(metaclass = EntityMeta):
         self.__finish_bind_lmdb(descriptor)
         self.__class__.__initialize_class__()
 
-    def __try_bind_lmdb(self) -> Optional[Descriptor]:
+    def __try_bind_lmdb(
+        self,
+        typecheck: bool
+    ) -> Optional[Descriptor]:
         with context(self.__env, write = False, inherit = True, buffers = False):
             txn = thread.local.transaction
             result = txn.get(key = self.__encname, db = self.__namedb)
@@ -141,8 +145,9 @@ class Entity(metaclass = EntityMeta):
                 result = txn.get(key = obj_uuid, db = self.__descdb)
                 result = bytes(result) if isinstance(result, memoryview) else result
                 descriptor = orjson.loads(result)
-                if descriptor['type'] != get_qualified_class_name(self):
-                    raise TypeError()
+                if typecheck:
+                    if descriptor['type'] != get_qualified_class_name(self):
+                        raise TypeError()
                 self.__uuidbytes = obj_uuid
                 self.__creator = False
                 self.__vers = descriptor['versioned']
@@ -241,10 +246,6 @@ class Entity(metaclass = EntityMeta):
     @property
     def versioned(self) -> bool:
         return self.__vers
-
-    @property
-    def persistent(self) -> bool:
-        return self.path.startswith(''.join([constants.PERSISTENT_NAMESPACE, '/']))
 
     @property
     def creator(self) -> bool:

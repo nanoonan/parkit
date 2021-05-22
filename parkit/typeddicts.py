@@ -17,6 +17,7 @@ LMDBProperties = TypedDict(
 
 Profile = TypedDict(
     'Profile', {
+        'LMDB_INITIAL_MAP_SIZE': int,
         'LMDB_WRITE_MAP': bool,
         'LMDB_METASYNC': bool,
         'LMDB_MAP_ASYNC': bool,
@@ -32,8 +33,7 @@ Profile = TypedDict(
 
 Profiles = TypedDict(
     'Profiles', {
-        'volatile': Profile,
-        'persistent': Profile
+        'default': Profile
     }
 )
 

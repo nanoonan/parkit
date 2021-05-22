@@ -4,7 +4,7 @@ import pickle
 import struct
 
 from typing import (
-    Any, ByteString, Callable, cast, Generator, Optional, Tuple, Union
+    Any, ByteString, Callable, cast, Iterator, Optional, Tuple, Union
 )
 
 import parkit.constants as constants
@@ -19,6 +19,7 @@ from parkit.storage import (
 )
 from parkit.utility import (
     compile_function,
+    getenv,
     polling_loop,
     resolve_path
 )
@@ -37,12 +38,12 @@ class ReversibleGetSlice():
         self._start = start
         self._stop = stop
 
-    def __reversed__(self) -> Generator[Any, None, None]:
+    def __reversed__(self) -> Iterator[Any]:
         return self._owner.__reversed__(
             start = self._start, stop = self._stop
         )
 
-    def __iter__(self) -> Generator[Any, None, None]:
+    def __iter__(self) -> Iterator[Any]:
         return self._owner.__iter__(
             start = self._start, stop = self._stop
         )
@@ -96,12 +97,12 @@ def method(
         code, insert, glbs = globals()
     ))
 
-def mkiter(reverse: bool = False) -> Tuple[str, Callable[..., Generator[Any, None, None]]]:
+def mkiter(reverse: bool = False) -> Tuple[str, Callable[..., Iterator[Any]]]:
     code = """
 def method(
     self,
     **kwargs: Dict[str, Optional[int]]
-) -> Generator[Any, None, None]:
+) -> Iterator[Any]:
     start = 0 if 'start' not in kwargs or kwargs['start'] is None else kwargs['start']
     {0}
     with context(
@@ -262,9 +263,10 @@ class Log(Sized, metaclass = LogMeta):
         timeout: Optional[float] = None,
         polling_interval: Optional[float] = None
     ):
+        default_polling_interval = getenv(constants.ADAPTER_POLLING_INTERVAL_ENVNAME, float)
         for _ in polling_loop(
             polling_interval if polling_interval is not None else \
-            constants.DEFAULT_ADAPTER_POLLING_INTERVAL,
+            default_polling_interval,
             timeout = timeout
         ):
             if len(self) > threshold:
@@ -274,9 +276,9 @@ class Log(Sized, metaclass = LogMeta):
 
     index: Callable[..., int] = Missing()
 
-    __reversed__: Callable[..., Generator[Any, None, None]] = Missing()
+    __reversed__: Callable[..., Iterator[Any]] = Missing()
 
-    __iter__: Callable[..., Generator[Any, None, None]] = Missing()
+    __iter__: Callable[..., Iterator[Any]] = Missing()
 
     count = Sized.__len__
 
