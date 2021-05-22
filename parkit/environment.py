@@ -5,8 +5,8 @@ from typing import cast
 
 import parkit.constants as constants
 
-from .profiles import get_lmdb_profiles
-from .utility import (
+from parkit.profiles import get_lmdb_profiles
+from parkit.utility import (
     checkenv,
     envexists,
     getenv,
