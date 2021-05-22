@@ -1,0 +1,7 @@
+site_name: ParKit Documentation
+theme: readthedocs
+nav:
+    - Home: index.md
+    - Basics: basics.md
+    - Processes: processes.md
+    - Custom Objects: custom.md
