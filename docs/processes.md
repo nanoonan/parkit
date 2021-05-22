@@ -1,6 +1,4 @@
-## Processes
-
-*parkit* provides a Process class with a similiar interface to the Python Process class in the *multiprocessing* package. One key difference is that the *parkit* process is like a Unix daemon process and will stay running even if the parent process that launched it terminates.
+*parkit* provides a Process class with a similiar interface to the Python Process class in the *multiprocessing* package. One key difference is that the *parkit* process is Unix-like daemon process and will stay running even if the parent process that launched it terminates.
 
 
 ```python
@@ -39,7 +37,7 @@ p.uuid
 
 
 
-    '56e86c4d-c56c-418f-ba53-8b9e353d6869'
+    '498baf61-37b8-4862-9cfe-5f84e5837a55'
 
 
 

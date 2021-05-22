@@ -1,4 +1,3 @@
-## Custom Objects
 You can create custom classes that automatically persist their attributes.
 
 In this example, the lifetime of the 'local' attribute is the same as the object instance. The rule is that any attribute declared in the class definition is not persistent. The 'persistent' attribute is a transactional attribute and you can access it from multiple processes. 

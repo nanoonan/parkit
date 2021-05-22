@@ -1,12 +1,14 @@
-## Overview
+The documentation is currently a set of notes more than a complete API reference.
 
 The *parkit* package provides some basic Python classes that support multiprocessing programming. Dictionaries, queues, logs (append-only lists), custom objects, and daemon processes are supported. All classes in *parkit* support transactional, concurrent access from multiple processes. Data is stored in LMDB which offers good performance.
 
 ## Installation
 
 ```
-python -m pip install .
+python -m pip install parkit
 ```
+
+Data is stored in the location pointed to by the PARKIT_STORAGE_PATH environment variable. This variable should be set before importing *parkit*. If the environment variable is not set, *parkit* will store its data in the system's temporary directory.
 
 ## Features
 

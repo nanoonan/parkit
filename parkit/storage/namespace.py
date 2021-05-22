@@ -22,6 +22,9 @@ from parkit.utility import (
 logger = logging.getLogger(__name__)
 
 def namespaces() -> Iterator[str]:
+    """
+    Namespaces
+    """
     for folder, _, _ in os.walk(getenv(constants.STORAGE_PATH_ENVNAME)):
         if folder != getenv(constants.STORAGE_PATH_ENVNAME):
             top_level_namespace = \
@@ -33,6 +36,9 @@ def namespaces() -> Iterator[str]:
                 )
 
 def objects(namespace: Optional[str] = None) -> Iterator[Tuple[str, Descriptor]]:
+    """
+    Objects
+    """
     namespace = resolve_namespace(namespace) if namespace else constants.DEFAULT_NAMESPACE
     env, name_db, _, _, descriptor_db = get_environment_threadsafe(namespace)
     with context(env, write = False, inherit = True, buffers = False):
