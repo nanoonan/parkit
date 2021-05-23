@@ -1,4 +1,5 @@
 # pylint: disable = broad-except, non-parent-init-called, too-many-public-methods, super-init-not-called, no-self-use, dangerous-default-value
+import datetime
 import logging
 import typing
 
@@ -7,7 +8,6 @@ from typing import (
 )
 
 import cloudpickle
-import pandas as pd
 import psutil
 
 import parkit.constants as constants
@@ -285,9 +285,9 @@ class Process(Dict):
 def start_monitor():
     state = Dict(constants.PROCESS_STATE_PATH)
     if 'monitor_last_checked' not in state:
-        state['monitor_last_checked'] = pd.Timestamp.now()
+        state['monitor_last_checked'] = datetime.datetime.now()
     else:
-        now = pd.Timestamp.now()
+        now = datetime.datetime.now()
         duration = (now - state['monitor_last_checked']).seconds
         state['monitor_last_checked'] = now
         if duration < getenv(constants.MONITOR_ISALIVE_INTERVAL_ENVNAME, float):
