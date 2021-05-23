@@ -11,7 +11,7 @@ syslog: Log = Log(constants.SYSLOG_PATH)
 
 class LogHandler(logging.StreamHandler):
 
-    def emit(self, record: Any) -> None:
+    def emit(self, record: Any):
         if not thread.local.transaction:
             syslog.append(self.format(record))
 

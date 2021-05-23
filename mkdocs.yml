@@ -2,6 +2,7 @@ site_name: ParKit Documentation
 theme: readthedocs
 nav:
     - Home: index.md
+    - Object: object.md
     - Collections: collections.md
-    - Processes: processes.md
-    - Persistent Objects: persistent.md
+    - Process: process.md
+    - Syslog: syslog.md

@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 class CursorDict(dict):
 
-    def __init__(self, txn: lmdb.Transaction) -> None:
+    def __init__(self, txn: lmdb.Transaction):
         super().__init__()
         self._txn = txn
 

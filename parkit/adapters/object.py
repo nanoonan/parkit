@@ -43,7 +43,7 @@ class Object(Entity, metaclass = ObjectMeta):
         bind: bool = True,
         versioned: bool = True,
         on_create: Optional[Callable[[], None]] = None
-    ) -> None:
+    ):
         name, namespace = resolve_path(path)
         super().__init__(
             name, properties = [], namespace = namespace,
@@ -90,7 +90,7 @@ class Object(Entity, metaclass = ObjectMeta):
         self,
         key: Any,
         /
-    ) -> None:
+    ):
         if not hasattr(self, '_Entity__def') or key in self._Entity__def:
             super().__delattr__(key)
             return
@@ -140,7 +140,7 @@ class Object(Entity, metaclass = ObjectMeta):
         key: Any,
         value: Any,
         /
-    ) -> None:
+    ):
         if not hasattr(self, '_Entity__def') or key in self._Entity__def:
             super().__setattr__(key, value)
             return

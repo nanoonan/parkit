@@ -42,7 +42,7 @@ def create_pid_filepath(
         node_uid + constants.PID_FILENAME_EXTENSION
     )
 
-def terminate_all_nodes(cluster_uid: str) -> None:
+def terminate_all_nodes(cluster_uid: str):
     running = scan_nodes(cluster_uid)
     for node_uid, _ in running:
         terminate_node(node_uid, cluster_uid)
@@ -50,7 +50,7 @@ def terminate_all_nodes(cluster_uid: str) -> None:
 def terminate_process(
     pid: int,
     process_termination_timeout: float = 1
-) -> None:
+):
     if psutil.pid_exists(pid):
         try:
             proc = psutil.Process(pid)
@@ -143,7 +143,7 @@ def launch_node(
     node_module: str,
     cluster_uid: str,
     *args: Any
-) -> None:
+):
     module = importlib.import_module(node_module)
     path = os.path.abspath(module.__file__)
     subprocess.run(

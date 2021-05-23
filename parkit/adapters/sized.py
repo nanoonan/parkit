@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 class Sized(Object):
 
-    def clear(self) -> None:
+    def clear(self):
         try:
             implicit = False
             txn = thread.local.transaction

@@ -35,6 +35,12 @@ if not envexists(constants.MONITOR_POLLING_INTERVAL_ENVNAME):
         str(constants.DEFAULT_MONITOR_POLLING_INTERVAL)
     )
 
+if not envexists(constants.MONITOR_ISALIVE_INTERVAL_ENVNAME):
+    setenv(
+        constants.MONITOR_ISALIVE_INTERVAL_ENVNAME,
+        str(constants.DEFAULT_MONITOR_ISALIVE_INTERVAL)
+    )
+
 if not envexists(constants.TASKER_POLLING_INTERVAL_ENVNAME):
     setenv(
         constants.TASKER_POLLING_INTERVAL_ENVNAME,

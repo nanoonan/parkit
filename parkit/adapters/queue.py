@@ -75,7 +75,7 @@ class _Queue(Sized):
         create: bool = True,
         bind: bool = True,
         maxsize: int = 0
-    ) -> None:
+    ):
         name, namespace = resolve_path(path)
         Entity.__init__(
             self, name,
@@ -127,7 +127,7 @@ class _Queue(Sized):
         self,
         item: Any,
         /
-    ) -> None:
+    ):
         item = self.encitemval(item) if self.encitemval else item
         try:
             implicit = False
@@ -194,7 +194,7 @@ class _Queue(Sized):
 
 class QueueMeta(ObjectMeta):
 
-    def __initialize_class__(cls) -> None:
+    def __initialize_class__(cls):
         if isinstance(cast(_Queue, cls).get_nowait, Missing):
             code, method =  mkgetnowait(fifo = True)
             setattr(cls, 'get_nowait', method)
@@ -206,7 +206,7 @@ class Queue(_Queue, metaclass = QueueMeta):
 
 class LifoQueueMeta(ObjectMeta):
 
-    def __initialize_class__(cls) -> None:
+    def __initialize_class__(cls):
         if isinstance(cast(_Queue, cls).get_nowait, Missing):
             code, method =  mkgetnowait(fifo = False)
             setattr(cls, 'get_nowait', method)

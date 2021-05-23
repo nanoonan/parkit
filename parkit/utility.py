@@ -83,7 +83,7 @@ def checkenv(name: str, vartype: type) -> bool:
 def envexists(name: str) -> bool:
     return os.getenv(str(name)) is not None
 
-def setenv(name: str, value: str) -> None:
+def setenv(name: str, value: str):
     os.environ[str(name)] = str(value)
 
 @functools.lru_cache(None)

@@ -59,7 +59,7 @@ class Entity(metaclass = EntityMeta):
         typecheck: bool = True,
         on_create: Optional[Callable[[], None]] = None,
         custom_descriptor: Optional[Dict[str, Any]] = None
-    ) -> None:
+    ):
 
         if not create and not bind:
             raise ValueError()
@@ -113,7 +113,7 @@ class Entity(metaclass = EntityMeta):
             str(uuid.UUID(bytes = self.__uuidbytes))
         )
 
-    def __setstate__(self, from_wire: Tuple[str, str, str, str]) -> None:
+    def __setstate__(self, from_wire: Tuple[str, str, str, str]):
         _, self.__namespace, name, uuidstr = from_wire
         self.__encname = name.encode('utf-8')
         self.__uuidbytes = uuid.UUID(uuidstr).bytes
@@ -154,7 +154,7 @@ class Entity(metaclass = EntityMeta):
                 return descriptor
             return None
 
-    def __finish_bind_lmdb(self, descriptor: Descriptor) -> None:
+    def __finish_bind_lmdb(self, descriptor: Descriptor):
         for dbuid, _ in descriptor['databases']:
             self.__userdb.append(get_database_threadsafe(dbuid))
         if any(db is None for db in self.__userdb):
@@ -172,7 +172,7 @@ class Entity(metaclass = EntityMeta):
         properties: List[LMDBProperties],
         versioned: bool,
         custom_descriptor: Optional[Dict[str, Any]]
-    ) -> None:
+    ):
         txn = thread.local.transaction
         obj_uuid = txn.get(key = self.__encname, db = self.__namedb)
         if obj_uuid:
@@ -210,7 +210,7 @@ class Entity(metaclass = EntityMeta):
         exc_value: BaseException,
         txn: Optional[lmdb.Transaction] = None,
         check_exists = True
-    ) -> None:
+    ):
         abort = True
         if not txn:
             abort = False
@@ -302,7 +302,7 @@ class Entity(metaclass = EntityMeta):
                 cursor.close()
         return orjson.loads(result)
 
-    def increment_version(self, use_transaction: Optional[lmdb.Transaction] = None) -> None:
+    def increment_version(self, use_transaction: Optional[lmdb.Transaction] = None):
         if not self.__vers:
             return
         try:
@@ -367,7 +367,7 @@ class Entity(metaclass = EntityMeta):
                 cursor.close()
         return version
 
-    def drop(self) -> None:
+    def drop(self):
         try:
             txn = cursor = None
             cursor = thread.local.cursors[id(self.__attrdb)]

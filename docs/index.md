@@ -1,5 +1,3 @@
-The documentation is currently a set of notes more than a complete API reference.
-
 The *parkit* package provides some basic Python classes that support multiprocessing programming. Dictionaries, queues, logs (append-only lists), custom objects, and daemon processes are supported. All classes in *parkit* support transactional, concurrent access from multiple processes. Data is stored in LMDB which offers good performance.
 
 ## Installation
@@ -10,11 +8,25 @@ python -m pip install parkit
 
 Data is stored in the location pointed to by the PARKIT_STORAGE_PATH environment variable. This variable should be set before importing *parkit*. If the environment variable is not set, *parkit* will store its data in the system's temporary directory.
 
-## Features
+## Motivation
 
-1. All classes support persistent data and transactional access in multiprocessing environments.
-1. Class instances are identified by a namespace and a name. Constructors take a path argument (namespace '/' name) to attach the local instance to the persistent state.
-1. Explicit transactions can operate on multiple objects in the same namespace. Both read-write and read-only transactions are supported. Readers never block.
-1. Collection classes (Dict, Queue, and Log) provided with standard Python interfaces.
-1. Unix-like daemon processes via the Process class.
-1. Can create custom classes with persistent attributes by sub-classing Object.
+The goal of *parkit* is to make basic multiprocessing programming as simple as possible without sacrificing performance. Collection classes allow sharing data between processes in a Pythonic manner. The Process class represents a Unix-like daemon process, so its easy to launch and manage long-running processes without the problems inherent in child processes.
+
+Currently the documentation covers the basic features of the API. More advanced features like zero-copy semantics and custom
+encoding/decoding methods is not covered.
+
+## Help
+
+Apart from this documentation, the Python help command is often useful. All of the code is type annotated.
+```
+help(objects)
+
+Help on function objects in module parkit.storage.namespace:
+
+objects(namespace: Union[str, NoneType] = None) -> Iterator[Tuple[str, parkit.typeddicts.Descriptor]]
+
+```
+
+## Credit
+
+The *parkit* package is largely a convenience wrapper over these excellent projects: [LMDB](http://www.lmdb.tech/doc/), [daemoniker](https://daemoniker.readthedocs.io/en/latest/), and [psutil](https://github.com/giampaolo/psutil). Any benefits of this package are largely due to those efforts, while the shortcomings are wholly those of *parkit*.

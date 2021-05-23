@@ -33,7 +33,7 @@ class ReversibleGetSlice():
         owner,
         start: Optional[int],
         stop: Optional[int]
-    ) -> None:
+    ):
         self._owner = owner
         self._start = start
         self._stop = stop
@@ -104,63 +104,58 @@ def method(
     **kwargs: Dict[str, Optional[int]]
 ) -> Iterator[Any]:
     start = 0 if 'start' not in kwargs or kwargs['start'] is None else kwargs['start']
-    {0}
+    stop = 2**64 - 1 if 'stop' not in kwargs or kwargs['stop'] is None else kwargs['stop']
     with context(
         self._Entity__env, write = False,
         inherit = True, buffers = True
     ):
         cursor = thread.local.cursors[id(self._Entity__userdb[0])]
-        if stop is None:
-            if not cursor.last():
-                return
-            stop = struct.unpack('@N', cursor.key())[0]
-        else:
-            if stop < 0:
-                stop += thread.local.transaction.stat(self._Entity__userdb[0])['entries']
-            stop = stop - 1
-        {1}
+        size = thread.local.transaction.stat(self._Entity__userdb[0])['entries']
+        if start < 0:
+            start = size - abs(start)
+        if stop < 0:
+            stop = size - abs(stop)
+        stop -= 1
         if stop < start:
             return
+        {0}
         while True:
             item = cursor.value()
             key = struct.unpack('@N', cursor.key())[0]
-            {2}
+            {1}
             yield self.decitemval(item) if self.decitemval else item
-            {3}
+            {2}
 """
     insert0 = """
-    stop = kwargs['stop'] if 'stop' in kwargs else None
-    """.strip() if reverse else """
-    stop = 2**64 - 1 if 'stop' not in kwargs or kwargs['stop'] is None else kwargs['stop']
-    """.strip()
-    insert1 = """
+        stop = min(size - 1, stop)
         if not cursor.set_range(struct.pack('@N', stop)):
             return
     """.strip() if reverse else """
+        start = max(0, start)
         if not cursor.set_range(struct.pack('@N', start)):
             return
     """.strip()
-    insert2 = """
+    insert1 = """
             if key < start:
                 return
     """.strip() if reverse else """
             if key > stop:
                 return
     """.strip()
-    insert3 = """
+    insert2 = """
             if not cursor.prev():
                 return
     """.strip() if reverse else """
             if not cursor.next():
                 return
     """.strip()
-    return (code.format(insert0, insert1, insert2, insert3), compile_function(
-        code, insert0, insert1, insert2, insert3, glbs = globals()
+    return (code.format(insert0, insert1, insert2), compile_function(
+        code, insert0, insert1, insert2, glbs = globals()
     ))
 
 class LogMeta(ObjectMeta):
 
-    def __initialize_class__(cls) -> None:
+    def __initialize_class__(cls):
         method: Any
         if isinstance(cast(Log, cls).__contains__, Missing):
             code, method = mkcontains(return_bool = True)
@@ -194,7 +189,7 @@ class Log(Sized, metaclass = LogMeta):
         /, *,
         create: bool = True,
         bind: bool = True
-    ) -> None:
+    ):
         name, namespace = resolve_path(path)
         Entity.__init__(
             self, name, properties = [{'integerkey': True}],
@@ -236,7 +231,7 @@ class Log(Sized, metaclass = LogMeta):
         self,
         item: Any,
         /
-    ) -> None:
+    ):
         item = self.encitemval(item) if self.encitemval else item
         try:
             txn = cursor = None

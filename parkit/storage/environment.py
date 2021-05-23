@@ -49,7 +49,7 @@ collections.defaultdict(lambda: get_lmdb_profiles()['default']['LMDB_INITIAL_MAP
 
 _settings_initialized: bool = False
 
-def close_environments_atexit() -> None:
+def close_environments_atexit():
     with _environments_lock:
         for env, _, _, _, _ in _environments.values():
             try:
@@ -99,7 +99,7 @@ def initialize_settings():
 def _set_namespace_size_threadsafe(
     namespace: str,
     size: int
-) -> None:
+):
     assert constants.SETTINGS_NAMESPACE in _environments
     with _environments_lock:
         initialize_settings()
@@ -131,7 +131,7 @@ def set_namespace_size(
     size: int,
     /, *,
     namespace: Optional[str] = None
-) -> None:
+):
     if thread.local.transaction:
         raise ContextError('Cannot set namespace size in a transaction')
     if size <= 0:

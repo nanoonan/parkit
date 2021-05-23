@@ -67,7 +67,7 @@ def method(self) -> Iterator[Union[Any, Tuple[Any, Any]], None, None]:
 
 class DictMeta(ObjectMeta):
 
-    def __initialize_class__(cls) -> None:
+    def __initialize_class__(cls):
         if isinstance(cast(Dict, cls).__iter__, Missing):
             code, method = mkiter(keys = True, values = False)
             setattr(cls, '__iter__', method)
@@ -107,7 +107,7 @@ class Dict(Sized, metaclass = DictMeta):
         create: bool = True,
         bind: bool = True,
         versioned: bool = True
-    ) -> None:
+    ):
         name, namespace = resolve_path(path)
         Entity.__init__(
             self, name, properties = [{}], namespace = namespace,
@@ -251,7 +251,7 @@ class Dict(Sized, metaclass = DictMeta):
         self,
         key: Any,
         /
-    ) -> None:
+    ):
         key = self. encitemkey(key) if self.encitemkey else key
         try:
             implicit = False
@@ -296,7 +296,7 @@ class Dict(Sized, metaclass = DictMeta):
         key: Any,
         value: Any,
         /
-    ) -> None:
+    ):
         key = self.encitemkey(key) if self.encitemkey else key
         value = self.encitemval(value) if self.encitemval else value
         try:
@@ -325,7 +325,7 @@ class Dict(Sized, metaclass = DictMeta):
             Tuple[Union[typing.Dict[Any, Any], MutableMapping[Any, Any], Iterable[Tuple[Any, Any]]]]
         ],
         **kwargs: typing.Dict[Any, Any]
-    ) -> None:
+    ):
         dict_items = iter_items = None
         consumed = added = 0
         if args and isinstance(args[0], dict):

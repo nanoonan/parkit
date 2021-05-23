@@ -7,6 +7,7 @@ from typing import (
 )
 
 import cloudpickle
+import pandas as pd
 import psutil
 
 import parkit.constants as constants
@@ -59,11 +60,11 @@ class Process(Dict):
         target: Optional[Callable[..., Any]] = None,
         args: Optional[Tuple[Any, ...]] = None,
         kwargs: Optional[typing.Dict[str, Any]] = None
-    ) -> None:
+    ):
 
         name, namespace = resolve_path(path)
 
-        def on_create() -> None:
+        def on_create():
             self.__put('pid', None)
             self.__put('result', None)
             self.__put('error', None)
@@ -88,7 +89,7 @@ class Process(Dict):
         )
 
     @staticmethod
-    def killall() -> None:
+    def killall():
         cluster_uid = create_string_digest(getenv(constants.STORAGE_PATH_ENVNAME))
         terminate_all_nodes(cluster_uid)
 
@@ -100,14 +101,14 @@ class Process(Dict):
         return state['pool_size']
 
     @staticmethod
-    def set_pool_size(size: int) -> None:
+    def set_pool_size(size: int):
         state = Dict(constants.PROCESS_STATE_PATH)
         state['pool_size'] = size
 
     @staticmethod
     def clean(
         status_filter: Optional[Union[str, List[str]]] = ['finished', 'crashed', 'failed']
-    ) -> None:
+    ):
         paths = [path for path, _ in objects(constants.PROCESS_NAMESPACE)]
         for path in paths:
             process = Process(path, typecheck = False)
@@ -129,11 +130,11 @@ class Process(Dict):
                 yield process
 
     @property
-    def authkey(self) -> None:
+    def authkey(self):
         return None
 
     @property
-    def sentinel(self) -> None:
+    def sentinel(self):
         return None
 
     @property
@@ -204,7 +205,7 @@ class Process(Dict):
         self,
         key: Any,
         value: Any
-    ) -> None:
+    ):
         key = cloudpickle.dumps(key)
         value = cloudpickle.dumps(value)
         try:
@@ -231,7 +232,7 @@ class Process(Dict):
             return target(*args, **kwargs)
         return None
 
-    def start(self) -> None:
+    def start(self):
         if self.__get('status') == 'created':
             start_monitor()
             with transaction(self):
@@ -254,13 +255,13 @@ class Process(Dict):
             if self.status in {'crashed', 'finished', 'failed'}:
                 break
 
-    def close(self) -> None:
+    def close(self):
         self.drop()
 
-    def kill(self) -> None:
+    def kill(self):
         self.terminate()
 
-    def terminate(self) -> None:
+    def terminate(self):
         with transaction(self):
             try:
                 node_uid = self.__get('node_uid')
@@ -270,7 +271,7 @@ class Process(Dict):
             except FileNotFoundError:
                 pass
 
-    def drop(self) -> None:
+    def drop(self):
         with transaction(self):
             try:
                 node_uid = self.__get('node_uid')
@@ -281,7 +282,16 @@ class Process(Dict):
                 pass
             Entity.drop(self)
 
-def start_monitor() -> None:
+def start_monitor():
+    state = Dict(constants.PROCESS_STATE_PATH)
+    if 'monitor_last_checked' not in state:
+        state['monitor_last_checked'] = pd.Timestamp.now()
+    else:
+        now = pd.Timestamp.now()
+        duration = (now - state['monitor_last_checked']).seconds
+        state['monitor_last_checked'] = now
+        if duration < getenv(constants.MONITOR_ISALIVE_INTERVAL_ENVNAME, float):
+            return
     cluster_uid = create_string_digest(getenv(constants.STORAGE_PATH_ENVNAME))
     running = scan_nodes(cluster_uid)
     if [node_uid for node_uid, _ in running if node_uid == 'monitor']:

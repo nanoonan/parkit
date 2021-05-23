@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 class EntityMeta(type):
 
-    def __initialize_class__(cls: Any) -> None:
+    def __initialize_class__(cls: Any):
         if not hasattr(cls, '_Entity__def'):
             setattr(cls, '_Entity__def', set(dir(cls)))
 
