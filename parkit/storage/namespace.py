@@ -26,8 +26,9 @@ def namespaces() -> Iterator[str]:
         if folder != getenv(constants.STORAGE_PATH_ENVNAME):
             top_level_namespace = \
             folder[len(getenv(constants.STORAGE_PATH_ENVNAME)):].split(os.path.sep)[1]
-            if not top_level_namespace.startswith('__') and \
-            not top_level_namespace.startswith('__'):
+            if not (
+                top_level_namespace.startswith('__') and top_level_namespace.endswith('__')
+            ):
                 yield '/'.join(
                     folder[len(getenv(constants.STORAGE_PATH_ENVNAME)):].split(os.path.sep)[1:]
                 )
@@ -43,7 +44,7 @@ def objects(namespace: Optional[str] = None) -> Iterator[Tuple[str, Descriptor]]
                 result = cursor.key()
                 name = bytes(result).decode('utf-8') if isinstance(result, memoryview) else \
                 result.decode('utf-8')
-                if not name.startswith('__') and not name.endswith('__'):
+                if not (name.startswith('__') and name.endswith('__')):
                     names[cursor.value()] = '/'.join([namespace, name]) if namespace else name
                 if not cursor.next():
                     break

@@ -1,8 +1,29 @@
 site_name: ParKit Documentation
-theme: readthedocs
+
+theme:
+  name: material
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.sections
+    - navigation.top
+    - toc.integrate
+    - navigation.expand
+
 nav:
     - Home: index.md
-    - Object: object.md
-    - Collections: collections.md
-    - Process: process.md
+    - API Reference: api.md
+    - Using Object: object.md
+    - Using Collections: collections.md
+    - Using Process: process.md
     - Syslog: syslog.md
+
+markdown_extensions:
+  - meta
+  - def_list
+  - admonition
+  - pymdownx.highlight
+  - pymdownx.superfences
+  - pymdownx.snippets

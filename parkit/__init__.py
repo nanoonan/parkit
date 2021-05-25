@@ -1,15 +1,19 @@
 import parkit.environment
 
 from parkit.adapters import (
-	BytesLifoQueue,
-	BytesLog,
-	BytesQueue,
+	clean,
 	Dict,
+	get_pool_size,
+	killall,
 	LifoQueue,
 	Log,
 	Object,
 	Process,
-	Queue
+	processes,
+    ProcessPriority,
+	Queue,
+    set_pool_size,
+    set_process_priority
 )
 from parkit.exceptions import (
 	ContextError,

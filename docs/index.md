@@ -6,26 +6,15 @@ The *parkit* package provides some basic Python classes that support multiproces
 python -m pip install parkit
 ```
 
-Data is stored in the location pointed to by the PARKIT_STORAGE_PATH environment variable. This variable should be set before importing *parkit*. If the environment variable is not set, *parkit* will store its data in the system's temporary directory.
+!!!important
+    Data is stored in the location pointed to by the PARKIT_STORAGE_PATH environment variable. This variable should be set before importing *parkit*. If the environment variable is not set when a database is accessed, *parkit* will automatically create a database in the system's temporary directory.
 
 ## Motivation
 
-The goal of *parkit* is to make basic multiprocessing programming as simple as possible without sacrificing performance. Collection classes allow sharing data between processes in a Pythonic manner. The Process class represents a Unix-like daemon process, so its easy to launch and manage long-running processes without the problems inherent in child processes.
+The goal of *parkit* is to make basic multiprocessing programming as simple as possible without sacrificing performance. Collection classes allow sharing data between processes in a Pythonic manner. The *Process* class represents a Unix-like daemon process, so its easy to launch and manage long-running processes while avoiding the problems inherent in child processes.
 
 Currently the documentation covers the basic features of the API. More advanced features like zero-copy semantics and custom
 encoding/decoding methods is not covered.
-
-## Help
-
-Apart from this documentation, the Python help command is often useful. All of the code is type annotated.
-```
-help(objects)
-
-Help on function objects in module parkit.storage.namespace:
-
-objects(namespace: Union[str, NoneType] = None) -> Iterator[Tuple[str, parkit.typeddicts.Descriptor]]
-
-```
 
 ## Credit
 

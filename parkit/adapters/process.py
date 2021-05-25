@@ -1,10 +1,11 @@
-# pylint: disable = broad-except, non-parent-init-called, too-many-public-methods, super-init-not-called, no-self-use, dangerous-default-value
+# pylint: disable = broad-except, non-parent-init-called, too-many-public-methods, super-init-not-called, no-self-use
 import datetime
 import logging
 import typing
+import uuid
 
 from typing import (
-    Any, Callable, Iterator, List, Optional, Tuple, Union
+    Any, Callable, Optional, Tuple
 )
 
 import cloudpickle
@@ -18,12 +19,10 @@ from parkit.adapters.queue import Queue
 from parkit.pool import (
     launch_node,
     scan_nodes,
-    terminate_all_nodes,
     terminate_node
 )
 from parkit.storage import (
     Entity,
-    objects,
     snapshot,
     transaction
 )
@@ -51,7 +50,7 @@ class Process(Dict):
 
     def __init__(
         self,
-        path: str,
+        path: Optional[str] = None,
         /, *,
         create: bool = True,
         bind: bool = True,
@@ -61,6 +60,8 @@ class Process(Dict):
         args: Optional[Tuple[Any, ...]] = None,
         kwargs: Optional[typing.Dict[str, Any]] = None
     ):
+        if path is None:
+            path = 'process-{0}'.format(str(uuid.uuid4()))
 
         name, namespace = resolve_path(path)
 
@@ -87,47 +88,6 @@ class Process(Dict):
             create = create, bind = bind, versioned = versioned, on_create = on_create,
             typecheck = typecheck
         )
-
-    @staticmethod
-    def killall():
-        cluster_uid = create_string_digest(getenv(constants.STORAGE_PATH_ENVNAME))
-        terminate_all_nodes(cluster_uid)
-
-    @staticmethod
-    def get_pool_size() -> int:
-        state = Dict(constants.PROCESS_STATE_PATH)
-        if 'pool_size' not in state:
-            state['pool_size'] = getenv(constants.PROCESS_POOL_SIZE_ENVNAME, int)
-        return state['pool_size']
-
-    @staticmethod
-    def set_pool_size(size: int):
-        state = Dict(constants.PROCESS_STATE_PATH)
-        state['pool_size'] = size
-
-    @staticmethod
-    def clean(
-        status_filter: Optional[Union[str, List[str]]] = ['finished', 'crashed', 'failed']
-    ):
-        paths = [path for path, _ in objects(constants.PROCESS_NAMESPACE)]
-        for path in paths:
-            process = Process(path, typecheck = False)
-            if status_filter is None or \
-            (isinstance(status_filter, list) and process.status in status_filter) or \
-            process.status == status_filter:
-                process.drop()
-
-    @staticmethod
-    def dir(
-        status_filter: Optional[Union[str, List[str]]] = 'running'
-    ) -> Iterator[Any]:
-        paths = [path for path, _ in objects(constants.PROCESS_NAMESPACE)]
-        for path in paths:
-            process = Process(path, typecheck = False)
-            if status_filter is None or \
-            (isinstance(status_filter, list) and process.status in status_filter) or \
-            process.status == status_filter:
-                yield process
 
     @property
     def authkey(self):
@@ -234,7 +194,7 @@ class Process(Dict):
 
     def start(self):
         if self.__get('status') == 'created':
-            start_monitor()
+            self._start_monitor()
             with transaction(self):
                 if self.__get('status') == 'created':
                     queue = ProcessQueue(constants.PROCESS_QUEUE_PATH)
@@ -282,22 +242,22 @@ class Process(Dict):
                 pass
             Entity.drop(self)
 
-def start_monitor():
-    state = Dict(constants.PROCESS_STATE_PATH)
-    if 'monitor_last_checked' not in state:
-        state['monitor_last_checked'] = datetime.datetime.now()
-    else:
-        now = datetime.datetime.now()
-        duration = (now - state['monitor_last_checked']).seconds
-        state['monitor_last_checked'] = now
-        if duration < getenv(constants.MONITOR_ISALIVE_INTERVAL_ENVNAME, float):
+    def _start_monitor(self):
+        state = Dict(constants.PROCESS_STATE_PATH)
+        if 'monitor_last_checked' not in state:
+            state['monitor_last_checked'] = datetime.datetime.now()
+        else:
+            now = datetime.datetime.now()
+            duration = (now - state['monitor_last_checked']).seconds
+            state['monitor_last_checked'] = now
+            if duration < getenv(constants.MONITOR_ISALIVE_INTERVAL_ENVNAME, float):
+                return
+        cluster_uid = create_string_digest(getenv(constants.STORAGE_PATH_ENVNAME))
+        running = scan_nodes(cluster_uid)
+        if [node_uid for node_uid, _ in running if node_uid == 'monitor']:
             return
-    cluster_uid = create_string_digest(getenv(constants.STORAGE_PATH_ENVNAME))
-    running = scan_nodes(cluster_uid)
-    if [node_uid for node_uid, _ in running if node_uid == 'monitor']:
-        return
-    launch_node(
-        'monitor',
-        'parkit.pool.monitordaemon',
-        cluster_uid
-    )
+        launch_node(
+            'monitor',
+            'parkit.pool.monitordaemon',
+            cluster_uid
+        )

@@ -276,7 +276,3 @@ class Log(Sized, metaclass = LogMeta):
     __iter__: Callable[..., Iterator[Any]] = Missing()
 
     count = Sized.__len__
-
-class BytesLog(Log):
-    encitemval = None
-    decitemval = None

@@ -215,11 +215,3 @@ class LifoQueueMeta(ObjectMeta):
 
 class LifoQueue(_Queue, metaclass = LifoQueueMeta):
     pass
-
-class BytesQueue(Queue):
-    encitemval = None
-    decitemval = None
-
-class BytesLifoQueue(LifoQueue):
-    encitemval = None
-    decitemval = None

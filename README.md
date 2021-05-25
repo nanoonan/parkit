@@ -1,6 +1,6 @@
 Status | Value
 ---|---
-**Quality** | Development
+**Quality** | Pre-Alpha
 **Tested** | Windows only
 **Requires** | Python 3.8+
 

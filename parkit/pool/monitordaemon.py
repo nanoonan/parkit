@@ -11,7 +11,10 @@ import psutil
 
 import parkit.constants as constants
 
-from parkit.adapters import Process
+from parkit.adapters import (
+    get_pool_size,
+    Process
+)
 from parkit.pool.commands import (
     create_pid_filepath,
     launch_node,
@@ -63,7 +66,7 @@ if __name__ == '__main__':
             running_nodes = scan_nodes(cluster_uid if cluster_uid else 'default')
             tasker_nodes = [node_uid for node_uid, _ in running_nodes if node_uid != 'monitor']
             n_estimated_nodes = len(tasker_nodes)
-            pool_size = Process.get_pool_size()
+            pool_size = get_pool_size()
             if n_estimated_nodes < pool_size:
                 for _ in range(pool_size - n_estimated_nodes):
                     launch_node(
