@@ -4,5 +4,7 @@ mkdocs:
   configuration: mkdocs.yml
   fail_on_warning: false
 
-install:
+python:
+  version: 3.8
+  install:
     - requirements: docs/requirements.txt
