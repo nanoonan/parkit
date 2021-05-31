@@ -19,7 +19,6 @@ import parkit.storage.threadlocal as thread
 
 from parkit.exceptions import (
     ContextError,
-    log,
     TransactionError
 )
 from parkit.profiles import get_lmdb_profiles
@@ -54,8 +53,8 @@ def close_environments_atexit():
         for env, _, _, _, _ in _environments.values():
             try:
                 env.close()
-            except lmdb.Error as exc:
-                log(exc)
+            except lmdb.Error:
+                logger.exception('Trapped error on pid %i', os.getpid())
 
 atexit.register(close_environments_atexit)
 
@@ -64,7 +63,7 @@ def initialize_settings():
     if _settings_initialized:
         return
 
-    install_path = os.path.abspath(getenv(constants.STORAGE_PATH_ENVNAME))
+    install_path = os.path.abspath(getenv(constants.STORAGE_PATH_ENVNAME, str))
     env_path = os.path.join(install_path, *constants.SETTINGS_NAMESPACE.split('/'))
     if os.path.exists(env_path):
         if not os.path.isdir(env_path):
@@ -141,7 +140,8 @@ def set_namespace_size(
 
 def get_database_threadsafe(key: Union[int, str]) -> Optional[lmdb._Database]:
     try:
-        return _databases[key]
+        with _databases_lock:
+            return _databases[key]
     except KeyError:
         return None
 
@@ -185,7 +185,7 @@ Tuple[lmdb.Environment, lmdb._Database, lmdb._Database, lmdb._Database, lmdb._Da
                     ))
                     setenv(constants.STORAGE_PATH_ENVNAME, storage_path)
                 else:
-                    storage_path = getenv(constants.STORAGE_PATH_ENVNAME)
+                    storage_path = getenv(constants.STORAGE_PATH_ENVNAME, str)
                 env_path = os.path.join(storage_path, *namespace.split('/'))
                 if os.path.exists(env_path):
                     if not os.path.isdir(env_path):

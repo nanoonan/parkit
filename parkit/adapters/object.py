@@ -1,14 +1,14 @@
 # pylint: disable = broad-except
 import logging
+import pickle
 
 from typing import (
-    Any, ByteString, Callable, cast, Iterator, Optional
+    Any, ByteString, Callable, cast, Dict, Iterator, Optional
 )
-
-import cloudpickle
 
 import parkit.storage.threadlocal as thread
 
+from parkit.exceptions import ObjectNotFoundError
 from parkit.storage import (
     context,
     Entity,
@@ -18,49 +18,49 @@ from parkit.utility import resolve_path
 
 logger = logging.getLogger(__name__)
 
-class ObjectMeta(EntityMeta):
-    pass
+class Object(Entity, metaclass = EntityMeta):
 
-class Object(Entity, metaclass = ObjectMeta):
+    encode_attr_key: Optional[Callable[..., ByteString]] = \
+    cast(Callable[..., ByteString], staticmethod(pickle.dumps))
 
-    encattrkey: Optional[Callable[..., ByteString]] = \
-    cast(Callable[..., ByteString], staticmethod(cloudpickle.dumps))
+    decode_attr_key: Optional[Callable[..., ByteString]] = \
+    cast(Callable[..., ByteString], staticmethod(pickle.loads))
 
-    decattrkey: Optional[Callable[..., ByteString]] = \
-    cast(Callable[..., ByteString], staticmethod(cloudpickle.loads))
+    encode_attr_value: Optional[Callable[..., ByteString]] = \
+    cast(Callable[..., ByteString], staticmethod(pickle.dumps))
 
-    encattrval: Optional[Callable[..., ByteString]] = \
-    cast(Callable[..., ByteString], staticmethod(cloudpickle.dumps))
-
-    decattrval: Optional[Callable[..., Any]] = \
-    cast(Callable[..., Any], staticmethod(cloudpickle.loads))
+    decode_attr_value: Optional[Callable[..., Any]] = \
+    cast(Callable[..., Any], staticmethod(pickle.loads))
 
     def __init__(
         self,
-        path: str,
+        path: Optional[str] = None,
         /, *,
         create: bool = True,
         bind: bool = True,
         versioned: bool = True,
-        on_create: Optional[Callable[[], None]] = None
+        type_check: bool = True,
+        metadata: Optional[Dict[str, Any]] = None
     ):
-        name, namespace = resolve_path(path)
+        if path is not None:
+            name, namespace = resolve_path(path)
+        else:
+            name = namespace = None
         super().__init__(
             name, properties = [], namespace = namespace,
             create = create, bind = bind, versioned = versioned,
-            on_create = on_create
+            type_check = type_check, metadata = metadata
         )
 
     def __getattr__(
         self,
-        key: str,
-        /
+        key: str
     ) -> Any:
         if key == '_Entity__def' or key in self._Entity__def:
             raise AttributeError()
         binkey = b''.join([
             self._Entity__uuidbytes,
-            self.encattrkey(key) if self.encattrkey else cast(ByteString, key)
+            self.encode_attr_key(key) if self.encode_attr_key else cast(ByteString, key)
         ])
         try:
             implicit = False
@@ -83,20 +83,21 @@ class Object(Entity, metaclass = ObjectMeta):
             if implicit and cursor:
                 cursor.close()
         if result is None:
+            if not self.exists:
+                raise ObjectNotFoundError()
             raise AttributeError()
-        return self.decattrval(result) if self.decattrval else result
+        return self.decode_attr_value(result) if self.decode_attr_value else result
 
     def __delattr__(
         self,
-        key: Any,
-        /
+        key: Any
     ):
         if not hasattr(self, '_Entity__def') or key in self._Entity__def:
             super().__delattr__(key)
             return
         binkey = b''.join([
             self._Entity__uuidbytes,
-            self.encattrkey(key) if self.encattrkey else cast(ByteString, key)
+            self.encode_attr_key(key) if self.encode_attr_key else cast(ByteString, key)
         ])
         try:
             implicit = False
@@ -114,11 +115,11 @@ class Object(Entity, metaclass = ObjectMeta):
         except BaseException as exc:
             self._Entity__abort(exc, txn if implicit else None)
         if not result:
+            if not self.exists:
+                raise ObjectNotFoundError()
             raise AttributeError()
 
-    def attributes(
-        self
-    ) -> Iterator[str]:
+    def attributes(self) -> Iterator[str]:
         with context(
             self._Entity__env, write = False,
             inherit = True, buffers = True
@@ -130,7 +131,7 @@ class Object(Entity, metaclass = ObjectMeta):
                     key = bytes(key) if isinstance(key, memoryview) else key
                     if key.startswith(self._Entity__uuidbytes):
                         key = key[len(self._Entity__uuidbytes):]
-                        yield self.decattrkey(key) if self.decattrkey else key
+                        yield self.decode_attr_key(key) if self.decode_attr_key else key
                         if cursor.next():
                             continue
                     return
@@ -138,17 +139,16 @@ class Object(Entity, metaclass = ObjectMeta):
     def __setattr__(
         self,
         key: Any,
-        value: Any,
-        /
+        value: Any
     ):
         if not hasattr(self, '_Entity__def') or key in self._Entity__def:
             super().__setattr__(key, value)
             return
         binkey = b''.join([
             self._Entity__uuidbytes,
-            self.encattrkey(key) if self.encattrkey else cast(ByteString, key)
+            self.encode_attr_key(key) if self.encode_attr_key else cast(ByteString, key)
         ])
-        value = self.encattrval(value) if self.encattrval else value
+        value = self.encode_attr_value(value) if self.encode_attr_value else value
         try:
             implicit = False
             txn = thread.local.transaction

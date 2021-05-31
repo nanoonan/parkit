@@ -1,18 +1,22 @@
-# pylint: disable = c-extension-no-member
 import logging
 import os
 
 from typing import (
-    Iterator, Optional, Tuple
+    Any, cast, Dict, Iterator, Optional, Tuple
 )
 
-import orjson
-
 import parkit.constants as constants
-import parkit.storage.threadlocal as thread
 
-from parkit.storage.context import context
-from parkit.storage.environment import get_environment_threadsafe
+from parkit.storage.environment import (
+    get_namespace_size,
+    set_namespace_size
+)
+from parkit.storage.objects import (
+    descriptor_iter,
+    load_object,
+    name_iter,
+    object_iter
+)
 from parkit.typeddicts import Descriptor
 from parkit.utility import (
     getenv,
@@ -21,43 +25,76 @@ from parkit.utility import (
 
 logger = logging.getLogger(__name__)
 
-def namespaces() -> Iterator[str]:
-    for folder, _, _ in os.walk(getenv(constants.STORAGE_PATH_ENVNAME)):
-        if folder != getenv(constants.STORAGE_PATH_ENVNAME):
+class Namespace():
+
+    def __init__(self, namespace: Optional[str] = None):
+        self._path = cast(
+            str,
+            resolve_namespace(namespace) if namespace else constants.DEFAULT_NAMESPACE
+        )
+
+    @property
+    def dir(self) -> str:
+        return os.path.join(
+            getenv(constants.STORAGE_PATH_ENVNAME, str),
+            self._path
+        )
+
+    @property
+    def path(self) -> str:
+        return self._path
+
+    @property
+    def maxsize(self) -> int:
+        return get_namespace_size(self._path)
+
+    @maxsize.setter
+    def maxsize(self, value: int):
+        assert value > 0
+        set_namespace_size(value, namespace = self._path)
+
+    def __delitem__(
+        self,
+        name: str
+    ):
+        self.__getitem__(name).drop()
+
+    def __getitem__(
+        self,
+        name: str
+    ) -> Any:
+        obj = load_object(self._path, name)
+        if obj is not None:
+            return obj
+        raise KeyError()
+
+    def metadata(self) -> Iterator[Tuple[str, Dict[str, Any]]]:
+        for name, descriptor in descriptor_iter(self._path):
+            yield (name, descriptor['custom'] if 'custom' in descriptor else {})
+
+    def descriptors(self) -> Iterator[Tuple[str, Descriptor]]:
+        return descriptor_iter(self._path)
+
+    def names(self) -> Iterator[str]:
+        return name_iter(self._path)
+
+    def objects(self) -> Iterator[Any]:
+        return self.__iter__()
+
+    def __iter__(self) -> Iterator[Any]:
+        return object_iter(self._path)
+
+    def __len__(self) -> int:
+        return len(list(self.names()))
+
+def namespaces() -> Iterator[Namespace]:
+    for folder, _, _ in os.walk(getenv(constants.STORAGE_PATH_ENVNAME, str)):
+        if folder != getenv(constants.STORAGE_PATH_ENVNAME, str):
             top_level_namespace = \
-            folder[len(getenv(constants.STORAGE_PATH_ENVNAME)):].split(os.path.sep)[1]
+            folder[len(getenv(constants.STORAGE_PATH_ENVNAME, str)):].split(os.path.sep)[1]
             if not (
                 top_level_namespace.startswith('__') and top_level_namespace.endswith('__')
             ):
-                yield '/'.join(
-                    folder[len(getenv(constants.STORAGE_PATH_ENVNAME)):].split(os.path.sep)[1:]
-                )
-
-def objects(namespace: Optional[str] = None) -> Iterator[Tuple[str, Descriptor]]:
-    namespace = resolve_namespace(namespace) if namespace else constants.DEFAULT_NAMESPACE
-    env, name_db, _, _, descriptor_db = get_environment_threadsafe(namespace)
-    with context(env, write = False, inherit = True, buffers = False):
-        cursor = thread.local.cursors[id(name_db)]
-        if cursor.first():
-            names = {}
-            while True:
-                result = cursor.key()
-                name = bytes(result).decode('utf-8') if isinstance(result, memoryview) else \
-                result.decode('utf-8')
-                if not (name.startswith('__') and name.endswith('__')):
-                    names[cursor.value()] = '/'.join([namespace, name]) if namespace else name
-                if not cursor.next():
-                    break
-            cursor = thread.local.cursors[id(descriptor_db)]
-            if cursor.first():
-                while True:
-                    if cursor.key() in names:
-                        result = cursor.value()
-                        descriptor = orjson.loads(bytes(result) \
-                        if isinstance(result, memoryview) else result)
-                        yield (
-                            names[cursor.key()],
-                            descriptor
-                        )
-                    if not cursor.next():
-                        return
+                yield Namespace('/'.join(
+                    folder[len(getenv(constants.STORAGE_PATH_ENVNAME, str)):].split(os.path.sep)[1:]
+                ))

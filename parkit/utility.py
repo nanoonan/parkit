@@ -56,12 +56,11 @@ def get_qualified_class_name(obj: Any) -> str:
         return obj.__module__ + '.' + obj.__name__
     return obj.__class__.__module__ + '.' + obj.__class__.__name__
 
-def getenv(name: str, vartype: Optional[type] = None) -> Any:
-    name = str(name)
+def getenv(name: str, vartype: type = str) -> Any:
     value = os.getenv(name)
     if value is None:
         raise ValueError('Environment variable {0} not found in environment'.format(name))
-    if vartype is None or vartype is str:
+    if vartype is str:
         return value
     if vartype is bool:
         return bool(distutils.util.strtobool(value))
@@ -71,27 +70,31 @@ def getenv(name: str, vartype: Optional[type] = None) -> Any:
 
 def checkenv(name: str, vartype: type) -> bool:
     if vartype is bool:
-        if not getenv(name).upper() == 'FALSE' and not getenv(name).upper() == 'TRUE':
+        if getenv(name, str).upper() != 'FALSE' and getenv(name, str).upper() != 'TRUE':
             raise TypeError('Environment variable {0} has wrong type'.format(name))
     else:
         try:
-            type(getenv(name))
+            type(getenv(name, str))
         except Exception as exc:
             raise TypeError('Environment variable has {0} wrong type'.format(name)) from exc
     return True
 
 def envexists(name: str) -> bool:
-    return os.getenv(str(name)) is not None
+    return os.getenv(name) is not None
 
-def setenv(name: str, value: str):
-    os.environ[str(name)] = str(value)
+def setenv(name: str, value: Optional[Any]):
+    if value is None and name in os.environ:
+        del os.environ[name]
+    elif value is not None:
+        os.environ[name] = str(value)
 
 @functools.lru_cache(None)
-def resolve_path(path: str) -> Tuple[str, Optional[str]]:
+def resolve_path(path: str) -> Tuple[Optional[str], Optional[str]]:
     segments = [segment for segment in path.split('/') if len(segment)]
     if segments and \
     all(
-        segment.isascii() and segment.replace('_', '').replace('-', '').isalnum()
+        segment.isascii() and \
+        segment.replace('.', '').replace('_', '').replace('-', '').isalnum()
         for segment in segments
     ):
         return \

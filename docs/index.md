@@ -11,7 +11,7 @@ python -m pip install parkit
 
 ## Motivation
 
-The goal of *parkit* is to make basic multiprocessing programming as simple as possible without sacrificing performance. Collection classes allow sharing data between processes in a Pythonic manner. The *Process* class represents a Unix-like daemon process, so its easy to launch and manage long-running processes while avoiding the problems inherent in child processes.
+The goal of *parkit* is to make basic multiprocessing programming as simple as possible without sacrificing performance. Collection classes allow sharing data between processes in a Pythonic manner. The *Process* class implements a Unix-like daemon process, so its easy to launch and manage long-running processes while avoiding the problems inherent in child processes.
 
 Currently the documentation covers the basic features of the API. More advanced features like zero-copy semantics and custom
 encoding/decoding methods is not covered.

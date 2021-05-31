@@ -75,6 +75,23 @@ def get_recorded_pids(cluster_uid: str) -> Dict[str, Tuple[str, List[str]]]:
                 pass
     return recorded_pids
 
+def scan_python_processes() -> List[Tuple[int, str]]:
+    pids = []
+    results = []
+    for proc in psutil.process_iter(['name', 'pid']):
+        if proc.info['name'] in ['python.exe', 'pythonw.exe', 'python']:
+            pids.append(proc.info['pid'])
+    for pid in pids:
+        try:
+            proc = psutil.Process(pid)
+            if constants.PROCESS_UUID_ENVNAME in proc.environ():
+                results.append(
+                    (pid, proc.environ()[constants.PROCESS_UUID_ENVNAME])
+                )
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            pass
+    return results
+
 def scan_nodes(cluster_uid: str) -> List[Tuple[str, List[str]]]:
 
     #

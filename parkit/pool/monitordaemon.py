@@ -3,28 +3,18 @@ import logging
 import os
 import platform
 import sys
-import time
 import uuid
 
 import daemoniker
-import psutil
 
 import parkit.constants as constants
 
-from parkit.adapters import (
-    get_pool_size,
-    Process
-)
+from parkit.adapters import Queue
+from parkit.functions import get_pool_size
 from parkit.pool.commands import (
     create_pid_filepath,
     launch_node,
-    scan_nodes,
-    terminate_node
-)
-from parkit.exceptions import log
-from parkit.storage import (
-    objects,
-    transaction
+    scan_nodes
 )
 from parkit.utility import (
     create_string_digest,
@@ -62,40 +52,47 @@ if __name__ == '__main__':
 
         polling_interval = getenv(constants.MONITOR_POLLING_INTERVAL_ENVNAME, float)
 
+        process_queue = Queue(constants.TASK_QUEUE_PATH)
+
+        termination_queue = Queue(constants.NODE_TERMINATION_QUEUE_PATH)
+
         for _ in polling_loop(polling_interval):
-            running_nodes = scan_nodes(cluster_uid if cluster_uid else 'default')
-            tasker_nodes = [node_uid for node_uid, _ in running_nodes if node_uid != 'monitor']
-            n_estimated_nodes = len(tasker_nodes)
-            pool_size = get_pool_size()
-            if n_estimated_nodes < pool_size:
-                for _ in range(pool_size - n_estimated_nodes):
+            try:
+                pre_scan_termination_count = len(termination_queue)
+                running_nodes = scan_nodes(cluster_uid if cluster_uid else 'default')
+                post_scan_termination_count = len(termination_queue)
+
+                worker_nodes = [
+                    node_uid for node_uid, _ in running_nodes \
+                    if node_uid not in ['monitor', 'scheduler']
+                ]
+
+                pool_size = get_pool_size()
+
+                pre_scan_delta = pool_size - (len(worker_nodes) - pre_scan_termination_count)
+                post_scan_delta = pool_size - (len(worker_nodes) - post_scan_termination_count)
+
+                if post_scan_delta > 0:
+                    for _ in range(post_scan_delta):
+                        launch_node(
+                            create_string_digest(str(uuid.uuid4())),
+                            'parkit.pool.workerdaemon',
+                            cluster_uid if cluster_uid else 'default'
+                        )
+                elif pre_scan_delta < 0:
+                    for _ in range(abs(pre_scan_delta)):
+                        termination_queue.put_nowait(True)
+
+                if 'scheduler' not in [node_uid for node_uid, _ in running_nodes]:
                     launch_node(
-                        create_string_digest(str(uuid.uuid4())),
-                        'parkit.pool.taskdaemon',
+                        'scheduler',
+                        'parkit.pool.scheddaemon',
                         cluster_uid if cluster_uid else 'default'
                     )
-            elif n_estimated_nodes > pool_size:
-                exclude = []
-                with transaction(constants.PROCESS_NAMESPACE):
-                    paths = [path for path, _ in objects(constants.PROCESS_NAMESPACE)]
-                    for path in paths:
-                        process = Process(path, typecheck = False)
-                        if process.status == 'running':
-                            exclude.append(process._Process__get('node_uid'))
-                    count = 0
-                    pids = []
-                    for node_uid in tasker_nodes:
-                        if node_uid not in exclude:
-                            pids.append(
-                                terminate_node(node_uid, cluster_uid if cluster_uid else 'default')
-                            )
-                            count += 1
-                            if count >= (n_estimated_nodes - pool_size):
-                                break
-                    for pid in pids:
-                        if pid is not None:
-                            while psutil.pid_exists(pid):
-                                time.sleep(0)
+            except Exception:
+                logger.exception('(monitor) error on pid %i', os.getpid())
 
-    except Exception as exc:
-        log(exc)
+    except (SystemExit, KeyboardInterrupt, GeneratorExit):
+        pass
+    except Exception:
+        logger.exception('(monitor) fatal error on pid %i', os.getpid())

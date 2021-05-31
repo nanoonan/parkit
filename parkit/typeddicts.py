@@ -1,5 +1,3 @@
-import datetime
-
 from typing import (
   Any, Dict, List, Tuple, TypedDict
 )
@@ -40,9 +38,12 @@ Profiles = TypedDict(
 Descriptor = TypedDict(
     'Descriptor', {
         'databases': List[Tuple[str, LMDBProperties]],
+        'uuid': str,
         'versioned': bool,
-        'created': datetime.datetime,
+        'anonymous': bool,
+        'created': str,
         'type': str,
+        'origin': str,
         'custom': Dict[str, Any]
     }
 )

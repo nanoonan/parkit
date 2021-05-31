@@ -34,7 +34,7 @@ class Sized(Object):
             if not txn:
                 implicit = True
                 txn = self._Entity__env.begin()
-            result = sum([txn.stat(database)['entries'] for database in self._Entity__userdb])
+            result = txn.stat(self._Entity__userdb[0])['entries']
             if implicit:
                 txn.commit()
         except BaseException as exc:

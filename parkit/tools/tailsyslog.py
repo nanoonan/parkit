@@ -1,15 +1,16 @@
 
 from parkit import (
     snapshot,
-    syslog
+    syslog,
+    wait_until
 )
 
 length = len(syslog)
 print('welcome to syslog')
-print('starting at index:', length)
+print('current log size:', length)
 while True:
-    syslog.wait(length)
-    with snapshot(syslog):
+    wait_until(lambda: len(syslog) > length)
+    with snapshot(syslog.namespace):
         for record in syslog[length:]:
             print(record)
         length = len(syslog)

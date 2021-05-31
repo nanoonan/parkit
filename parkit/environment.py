@@ -1,5 +1,5 @@
-import logging
 import os
+import uuid
 
 from typing import cast
 
@@ -13,12 +13,15 @@ from parkit.utility import (
     setenv
 )
 
-logger = logging.getLogger(__name__)
+setenv(
+    constants.PROCESS_UUID_ENVNAME,
+    str(uuid.uuid4())
+)
 
 if envexists(constants.STORAGE_PATH_ENVNAME):
     setenv(
         constants.STORAGE_PATH_ENVNAME,
-        os.path.abspath(getenv(constants.STORAGE_PATH_ENVNAME))
+        os.path.abspath(getenv(constants.STORAGE_PATH_ENVNAME, str))
     )
 
 for name, default in get_lmdb_profiles()['default'].copy().items():
@@ -26,13 +29,19 @@ for name, default in get_lmdb_profiles()['default'].copy().items():
         if checkenv(name, type(default)):
             cast(dict, get_lmdb_profiles())['default'][name] = getenv(name, type(default))
 
-if not envexists(constants.PROCESS_POOL_SIZE_ENVNAME):
-    setenv(constants.PROCESS_POOL_SIZE_ENVNAME, str(constants.DEFAULT_PROCESS_POOL_SIZE))
+if not envexists(constants.POOL_SIZE_ENVNAME):
+    setenv(constants.POOL_SIZE_ENVNAME, str(constants.DEFAULT_POOL_SIZE))
 
 if not envexists(constants.MONITOR_POLLING_INTERVAL_ENVNAME):
     setenv(
         constants.MONITOR_POLLING_INTERVAL_ENVNAME,
         str(constants.DEFAULT_MONITOR_POLLING_INTERVAL)
+    )
+
+if not envexists(constants.GARBAGE_COLLECTOR_POLLING_INTERVAL_ENVNAME):
+    setenv(
+        constants.GARBAGE_COLLECTOR_POLLING_INTERVAL_ENVNAME,
+        str(constants.DEFAULT_GARBAGE_COLLECTOR_POLLING_INTERVAL)
     )
 
 if not envexists(constants.MONITOR_ISALIVE_INTERVAL_ENVNAME):
@@ -41,10 +50,10 @@ if not envexists(constants.MONITOR_ISALIVE_INTERVAL_ENVNAME):
         str(constants.DEFAULT_MONITOR_ISALIVE_INTERVAL)
     )
 
-if not envexists(constants.TASKER_POLLING_INTERVAL_ENVNAME):
+if not envexists(constants.WORKER_POLLING_INTERVAL_ENVNAME):
     setenv(
-        constants.TASKER_POLLING_INTERVAL_ENVNAME,
-        str(constants.DEFAULT_TASKER_POLLING_INTERVAL)
+        constants.WORKER_POLLING_INTERVAL_ENVNAME,
+        str(constants.DEFAULT_WORKER_POLLING_INTERVAL)
     )
 
 if not envexists(constants.ADAPTER_POLLING_INTERVAL_ENVNAME):

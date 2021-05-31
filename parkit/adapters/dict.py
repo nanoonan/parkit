@@ -12,10 +12,10 @@ from typing import (
 
 import parkit.storage.threadlocal as thread
 
-from parkit.adapters.object import ObjectMeta
 from parkit.adapters.sized import Sized
 from parkit.storage import (
     Entity,
+    EntityMeta,
     context,
     Missing
 )
@@ -48,24 +48,24 @@ def method(self) -> Iterator[Union[Any, Tuple[Any, Any]], None, None]:
 """
     if keys and not values:
         insert = """
-            yield self.decitemkey(cursor.key()) if self.decitemkey else cursor.key()
+            yield self.decode_key(cursor.key()) if self.decode_key else cursor.key()
         """.strip()
     elif values and not keys:
         insert = """
-            yield self.decitemval(cursor.value()) if self.decitemval else cursor.value()
+            yield self.decode_value(cursor.value()) if self.decode_value else cursor.value()
         """
     else:
         insert = """
             yield (
-                self.decitemkey(cursor.key()) if self.decitemkey else cursor.key(),
-                self.decitemval(cursor.value()) if self.decitemval else cursor.value()
+                self.decode_key(cursor.key()) if self.decode_key else cursor.key(),
+                self.decode_value(cursor.value()) if self.decode_value else cursor.value()
             )
         """
     return (code.format(insert), compile_function(
         code, insert, glbs = globals()
     ))
 
-class DictMeta(ObjectMeta):
+class DictMeta(EntityMeta):
 
     def __initialize_class__(cls):
         if isinstance(cast(Dict, cls).__iter__, Missing):
@@ -88,30 +88,38 @@ class DictMeta(ObjectMeta):
 
 class Dict(Sized, metaclass = DictMeta):
 
-    decitemkey: Optional[Callable[..., Any]] = \
+    get_metadata: Optional[Callable[..., Any]] = None
+
+    decode_key: Optional[Callable[..., Any]] = \
     cast(Callable[..., Any], staticmethod(pickle.loads))
 
-    encitemkey: Optional[Callable[..., ByteString]] = \
+    encode_key: Optional[Callable[..., ByteString]] = \
     cast(Callable[..., ByteString], staticmethod(pickle.dumps))
 
-    decitemval: Optional[Callable[..., Any]] = \
+    decode_value: Optional[Callable[..., Any]] = \
     cast(Callable[..., Any], staticmethod(pickle.loads))
 
-    encitemval: Optional[Callable[..., ByteString]] = \
+    encode_value: Optional[Callable[..., ByteString]] = \
     cast(Callable[..., ByteString], staticmethod(pickle.dumps))
 
     def __init__(
         self,
-        path: str,
+        path: Optional[str] = None,
         /,*,
         create: bool = True,
         bind: bool = True,
-        versioned: bool = True
+        type_check: bool = True,
+        versioned: bool = True,
+        metadata: Optional[typing.Dict[str, Any]] = None
     ):
-        name, namespace = resolve_path(path)
+        if path is not None:
+            name, namespace = resolve_path(path)
+        else:
+            name = namespace = None
         Entity.__init__(
-            self, name, properties = [{}], namespace = namespace,
-            create = create, bind = bind, versioned = versioned
+            self, name, properties = [{}, {}], namespace = namespace,
+            create = create, bind = bind, versioned = versioned,
+            type_check = type_check, metadata = metadata
         )
 
     def __getitem__(
@@ -119,7 +127,7 @@ class Dict(Sized, metaclass = DictMeta):
         key: Any,
         /
     ) -> Any:
-        key = self.encitemkey(key) if self.encitemkey else key
+        key = self.encode_key(key) if self.encode_key else key
         try:
             implicit = False
             txn = thread.local.transaction
@@ -133,7 +141,7 @@ class Dict(Sized, metaclass = DictMeta):
             self._Entity__abort(exc, txn if implicit else None)
         if result is None:
             raise KeyError()
-        return self.decitemval(result) if self.decitemval else result
+        return self.decode_value(result) if self.decode_value else result
 
     def get(
         self,
@@ -141,7 +149,7 @@ class Dict(Sized, metaclass = DictMeta):
         default: Any = None,
         /
     ) -> Any:
-        key = self.encitemkey(key) if self.encitemkey else key
+        key = self.encode_key(key) if self.encode_key else key
         try:
             implicit = False
             txn = thread.local.transaction
@@ -153,7 +161,7 @@ class Dict(Sized, metaclass = DictMeta):
                 txn.commit()
         except BaseException as exc:
             self._Entity__abort(exc, txn if implicit else None)
-        return self.decitemval(result) if self.decitemval and result != default else result
+        return self.decode_value(result) if self.decode_value and result != default else result
 
     def setdefault(
         self,
@@ -161,7 +169,7 @@ class Dict(Sized, metaclass = DictMeta):
         default: Any = None,
         /
     ) -> Any:
-        key = self.encitemkey(key) if self.encitemkey else key
+        key = self.encode_key(key) if self.encode_key else key
         try:
             txn = cursor = None
             cursor = thread.local.cursors[id(self._Entity__userdb[0])]
@@ -172,7 +180,7 @@ class Dict(Sized, metaclass = DictMeta):
             if result:
                 value = cursor.value()
             else:
-                default = self.encitemval(default) if self.encitemval else default
+                default = self.encode_value(default) if self.encode_value else default
                 assert cursor.put(key = key, value = default)
                 if txn and self._Entity__vers:
                     self.increment_version(use_transaction = txn)
@@ -185,7 +193,7 @@ class Dict(Sized, metaclass = DictMeta):
         finally:
             if txn and cursor:
                 cursor.close()
-        return default if not result else (self.decitemval(value) if self.decitemval else value)
+        return default if not result else (self.decode_value(value) if self.decode_value else value)
 
     def popitem(self) -> Any:
         try:
@@ -212,8 +220,8 @@ class Dict(Sized, metaclass = DictMeta):
             if txn and cursor:
                 cursor.close()
         return (
-            self.decitemkey(key) if self.decitemkey else key,
-            self.decitemval(value) if self.decitemval else value
+            self.decode_key(key) if self.decode_key else key,
+            self.decode_value(value) if self.decode_value else value
         )
 
     def pop(
@@ -222,7 +230,7 @@ class Dict(Sized, metaclass = DictMeta):
         default: Any = _unspecified_class(),
         /
     ) -> Any:
-        key = self.encitemkey(key) if self.encitemkey else key
+        key = self.encode_key(key) if self.encode_key else key
         try:
             txn = cursor = None
             cursor = thread.local.cursors[id(self._Entity__userdb[0])]
@@ -245,14 +253,14 @@ class Dict(Sized, metaclass = DictMeta):
             raise KeyError()
         if result is None:
             return default
-        return self.decitemval(result) if self.decitemval else result
+        return self.decode_value(result) if self.decode_value else result
 
     def __delitem__(
         self,
         key: Any,
         /
     ):
-        key = self. encitemkey(key) if self.encitemkey else key
+        key = self. encode_key(key) if self.encode_key else key
         try:
             implicit = False
             txn = thread.local.transaction
@@ -274,7 +282,7 @@ class Dict(Sized, metaclass = DictMeta):
         key: Any,
         /
     ) -> bool:
-        key = self.encitemkey(key) if self.encitemkey else key
+        key = self.encode_key(key) if self.encode_key else key
         try:
             txn = cursor = None
             cursor = thread.local.cursors[id(self._Entity__userdb[0])]
@@ -297,8 +305,8 @@ class Dict(Sized, metaclass = DictMeta):
         value: Any,
         /
     ):
-        key = self.encitemkey(key) if self.encitemkey else key
-        value = self.encitemval(value) if self.encitemval else value
+        key = self.encode_key(key) if self.encode_key else key
+        value = self.encode_value(value) if self.encode_value else value
         try:
             implicit = False
             txn = thread.local.transaction
@@ -331,31 +339,31 @@ class Dict(Sized, metaclass = DictMeta):
         if args and isinstance(args[0], dict):
             dict_items = [
                 (
-                    self.encitemkey(key) if self.encitemkey else key,
-                    self.encitemval(value) if self.encitemval else value
+                    self.encode_key(key) if self.encode_key else key,
+                    self.encode_value(value) if self.encode_value else value
                 )
                 for key, value in args[0].items()
             ]
         elif args and isinstance(args[0], collections.abc.MutableMapping):
             iter_items = [
                 (
-                    self.encitemkey(key) if self.encitemkey else key,
-                    self.encitemval(value) if self.encitemval else value
+                    self.encode_key(key) if self.encode_key else key,
+                    self.encode_value(value) if self.encode_value else value
                 )
                 for key, value in args[0].items()
             ]
         elif args:
             iter_items = [
                 (
-                    self.encitemkey(key) if self.encitemkey else key,
-                    self.encitemval(value) if self.encitemval else value
+                    self.encode_key(key) if self.encode_key else key,
+                    self.encode_value(value) if self.encode_value else value
                 )
                 for key, value in args[0]
             ]
         kwargs_items = [
             (
-                self.encitemkey(key) if self.encitemkey else key,
-                self.encitemval(value) if self.encitemval else value
+                self.encode_key(key) if self.encode_key else key,
+                self.encode_value(value) if self.encode_value else value
             )
             for key, value in kwargs.items()
         ]

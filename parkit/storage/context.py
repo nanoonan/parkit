@@ -2,14 +2,14 @@
 import collections
 import contextlib
 import logging
-import traceback
 
 from typing import (
-    Any, ContextManager, Iterator
+    Any, ContextManager, Iterator, Optional, Union
 )
 
 import lmdb
 
+import parkit.constants as constants
 import parkit.storage.threadlocal as thread
 
 from parkit.exceptions import ContextError
@@ -75,7 +75,6 @@ def context(
                         obj.increment_version()
             thread.local.transaction.commit()
     except BaseException as exc:
-        traceback.print_exc()
         if not inherit:
             thread.local.transaction.abort()
         raise exc
@@ -95,26 +94,28 @@ def context(
                 thread.local.changed = set()
 
 def transaction(
-    obj: Any,
-    zerocopy: bool = True,
+    obj: Optional[Union[str, Any]] = None,
+    /, *,
+    zero_copy: bool = True,
     isolated: bool = False
 ) -> ContextManager:
     if isinstance(obj, str):
-        env, _, _, _, _ = get_environment_threadsafe(resolve_namespace(obj))
-    elif isinstance(type(obj), EntityMeta):
-        env = obj._Entity__env
+        namespace = resolve_namespace(obj) \
+        if obj else constants.DEFAULT_NAMESPACE
     else:
-        raise TypeError()
-    return context(env, write = True, inherit = not isolated, buffers = zerocopy)
+        namespace = obj.path if obj is not None else constants.DEFAULT_NAMESPACE
+    env, _, _, _, _ = get_environment_threadsafe(namespace)
+    return context(env, write = True, inherit = not isolated, buffers = zero_copy)
 
 def snapshot(
-    obj: Any,
-    zerocopy: bool = True
+    obj: Optional[Union[str, Any]] = None,
+    /, *,
+    zero_copy: bool = True
 ) -> ContextManager:
     if isinstance(obj, str):
-        env, _, _, _, _ = get_environment_threadsafe(resolve_namespace(obj))
-    elif isinstance(type(obj), EntityMeta):
-        env = obj._Entity__env
+        namespace = resolve_namespace(obj) \
+        if obj else constants.DEFAULT_NAMESPACE
     else:
-        raise TypeError()
-    return context(env, write = False, inherit = True, buffers = zerocopy)
+        namespace = obj.path if obj is not None else constants.DEFAULT_NAMESPACE
+    env, _, _, _, _ = get_environment_threadsafe(namespace)
+    return context(env, write = False, inherit = True, buffers = zero_copy)

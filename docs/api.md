@@ -18,7 +18,7 @@ Process | Unix-like daemon process that runs in a pool.
 ## Functions
 Function | Parameters | Description
 ---|---|---
-clean | status_filter | lslsls
+clean | status_filter | Remove processes that match the status filter. The default status filter is ['finished', 'crashed', 'failed'].
 get_namespace_size | namespace | Returns current maximum size of the storage backing a namespace.
 get_pool_size | None | Returns current size of process pool.
 killall | None | Shutdown the process pool.

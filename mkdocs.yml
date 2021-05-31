@@ -14,11 +14,11 @@ theme:
 
 nav:
     - Home: index.md
-    - API Reference: api.md
-    - Using Object: object.md
+    - Objects and Namespaces: object.md
+    - Advanced Usage: advanced.md
     - Using Collections: collections.md
     - Using Process: process.md
-    - Syslog: syslog.md
+    - API Reference: api.md
 
 markdown_extensions:
   - meta

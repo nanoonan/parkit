@@ -7,11 +7,14 @@ from typing import (
 
 logger = logging.getLogger(__name__)
 
+initialized = set()
+
 class EntityMeta(type):
 
     def __initialize_class__(cls: Any):
-        if not hasattr(cls, '_Entity__def'):
+        if str(cls) not in initialized:
             setattr(cls, '_Entity__def', set(dir(cls)))
+            initialized.add(str(cls))
 
     def __call__(
         cls: Any,
