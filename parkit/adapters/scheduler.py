@@ -45,24 +45,9 @@ frequency_ns = {
     Frequency.Week.value: 1e9 * 604800
 }
 
-frequency_delta = {
-    Frequency.Microsecond.value: lambda x: datetime.timedelta(microseconds = x),
-    Frequency.Millisecond.value: lambda x: datetime.timedelta(milliseconds = x),
-    Frequency.Second.value: lambda x: datetime.timedelta(seconds = x),
-    Frequency.Minute.value: lambda x: datetime.timedelta(minutes = x),
-    Frequency.Hour.value: lambda x: datetime.timedelta(hours = x),
-    Frequency.Day.value: lambda x: datetime.timedelta(days = x),
-    Frequency.Week.value: lambda x: datetime.timedelta(weeks = x),
-}
-
 def get_interval(frequency: Frequency, period: float):
     if frequency.value in frequency_ns:
         return int(frequency_ns[frequency.value] * period)
-    raise ValueError()
-
-def get_timedelta(frequency: Frequency, period: float):
-    if frequency.value in frequency_delta:
-        return frequency_delta[frequency.value](period)
     raise ValueError()
 
 class Periodic(Scheduler):

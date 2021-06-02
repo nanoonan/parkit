@@ -21,14 +21,21 @@ class Task(Function):
 
     def __init__(
         self,
-        path: str,
+        path: Optional[str] = None,
         /, *,
         target: Optional[Callable[..., Any]] = None,
         scheduler: Optional[Scheduler] = None,
         create: bool = False,
-        bind: bool = True
+        bind: bool = True,
+        storage_path: Optional[str] = None,
+        default_sync: bool = False
     ):
-        super().__init__(path, target = target, create = create, bind = bind)
+        super().__init__(
+            path, target = target, create = create, bind = bind,
+            storage_path = storage_path
+        )
+        if '_default_sync' not in self.attributes():
+            self._default_sync = default_sync
         if '_schedule' not in self.attributes():
             self._schedule = False
         if '_scheduler' not in self.attributes():
@@ -71,35 +78,52 @@ class Task(Function):
 
     def __call__(
         self,
+        sync: Optional[bool] = None,
         *args,
-        sync: bool = False,
         **kwargs
     ) -> Any:
+        if sync is None:
+            sync = self._default_sync
         if not sync:
             return self.submit(args = args, kwargs = kwargs)
         return self.invoke(args = args, kwargs = kwargs)
 
 def task(
     *args,
+    default_sync: bool = False,
     name: Optional[str] = None,
     scheduler: Optional[Scheduler] = None,
 ) -> Union[Task, Callable[[Callable[..., Any]], Task]]:
 
-    def setup(name, target):
+    def setup(target):
         if name is None:
             name = '.'.join([target.__module__, target.__name__])
         return Task(
             name, target = target, scheduler = scheduler,
-            create = True, bind = True
+            create = True, bind = True, default_sync = default_sync
         )
 
     target = None
 
     if args:
         target = args[0]
-        return setup(name, target)
+        return setup(target)
 
     def decorator(target):
-        return setup(name, target)
+        return setup(target)
 
     return decorator
+
+def bind_task(name: str):
+    return Task(name)
+
+def create_task(
+    target: Callable[..., Any],
+    /, *,
+    name: Optional[str] = None,
+    scheduler: Optional[Scheduler] = None
+) -> Task:
+    return Task(
+        name, target = target, create = True, bind = False,
+        scheduler = scheduler
+    )

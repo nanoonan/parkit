@@ -16,6 +16,10 @@ from typing import (
     Any, Callable, Dict, Iterator, List, Optional, Tuple
 )
 
+import psutil
+
+import parkit.constants as constants
+
 logger = logging.getLogger(__name__)
 
 def compile_function(
@@ -158,8 +162,34 @@ def get_calling_modules() -> List[str]:
         module = inspect.getmodule(frame)
         if module is not None:
             name = module.__name__
-            package = module.__name__.split('.')[0]
-            if package != 'parkit':
-                modules.append(name)
+            modules.append(name)
         frame = frame.f_back
     return modules
+
+def scan_python_processes(python_names: Optional[List[str]] = None) \
+-> List[Tuple[int, str, str, str]]:
+    pids = []
+    results = []
+    if python_names is None:
+        python_names = [
+            name for name in \
+            [name.strip() for name in getenv(constants.PYTHON_NAMES_ENVNAME, str).split(',')]
+        if name]
+    for proc in psutil.process_iter(['name', 'pid']):
+        if proc.info['name'] in python_names:
+            pids.append(proc.info['pid'])
+    for pid in pids:
+        try:
+            proc = psutil.Process(pid)
+            env = proc.environ()
+            if constants.PROCESS_UUID_ENVNAME in env:
+                node_uid = env[constants.NODE_UID_ENVNAME] if \
+                constants.NODE_UID_ENVNAME in env else None
+                cluster_uid = env[constants.CLUSTER_UID_ENVNAME] if \
+                constants.CLUSTER_UID_ENVNAME in env else None
+                results.append(
+                    (pid, proc.environ()[constants.PROCESS_UUID_ENVNAME], node_uid, cluster_uid)
+                )
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            pass
+    return results

@@ -8,7 +8,9 @@ from typing import (
 import parkit.constants as constants
 
 from parkit.storage.environment import (
+    get_environment_threadsafe,
     get_namespace_size,
+    resolve_storage_path,
     set_namespace_size
 )
 from parkit.storage.objects import (
@@ -18,27 +20,28 @@ from parkit.storage.objects import (
     object_iter
 )
 from parkit.typeddicts import Descriptor
-from parkit.utility import (
-    getenv,
-    resolve_namespace
-)
+from parkit.utility import resolve_namespace
 
 logger = logging.getLogger(__name__)
 
 class Namespace():
 
-    def __init__(self, namespace: Optional[str] = None):
+    def __init__(
+        self,
+        namespace: Optional[str] = None,
+        /, *,
+        storage_path: Optional[str] = None
+    ):
         self._path = cast(
             str,
             resolve_namespace(namespace) if namespace else constants.DEFAULT_NAMESPACE
         )
+        self._storage_path = resolve_storage_path(storage_path)
+        get_environment_threadsafe(self._storage_path, self._path)
 
     @property
-    def dir(self) -> str:
-        return os.path.join(
-            getenv(constants.STORAGE_PATH_ENVNAME, str),
-            self._path
-        )
+    def storage_path(self) -> str:
+        return self._storage_path
 
     @property
     def path(self) -> str:
@@ -46,12 +49,12 @@ class Namespace():
 
     @property
     def maxsize(self) -> int:
-        return get_namespace_size(self._path)
+        return get_namespace_size(self._storage_path, self._path)
 
     @maxsize.setter
     def maxsize(self, value: int):
         assert value > 0
-        set_namespace_size(value, namespace = self._path)
+        set_namespace_size(value, self._storage_path, self._path)
 
     def __delitem__(
         self,
@@ -63,38 +66,39 @@ class Namespace():
         self,
         name: str
     ) -> Any:
-        obj = load_object(self._path, name)
+        obj = load_object(self._storage_path, self._path, name)
         if obj is not None:
             return obj
         raise KeyError()
 
     def metadata(self) -> Iterator[Tuple[str, Dict[str, Any]]]:
-        for name, descriptor in descriptor_iter(self._path):
+        for name, descriptor in descriptor_iter(self._storage_path, self._path):
             yield (name, descriptor['custom'] if 'custom' in descriptor else {})
 
     def descriptors(self) -> Iterator[Tuple[str, Descriptor]]:
-        return descriptor_iter(self._path)
+        return descriptor_iter(self._storage_path, self._path)
 
     def names(self) -> Iterator[str]:
-        return name_iter(self._path)
+        return name_iter(self._storage_path, self._path)
 
     def objects(self) -> Iterator[Any]:
         return self.__iter__()
 
     def __iter__(self) -> Iterator[Any]:
-        return object_iter(self._path)
+        return object_iter(self._storage_path, self._path)
 
     def __len__(self) -> int:
         return len(list(self.names()))
 
-def namespaces() -> Iterator[Namespace]:
-    for folder, _, _ in os.walk(getenv(constants.STORAGE_PATH_ENVNAME, str)):
-        if folder != getenv(constants.STORAGE_PATH_ENVNAME, str):
+def namespaces(storage_path: Optional[str] = None) -> Iterator[Namespace]:
+    path = resolve_storage_path(storage_path)
+    for folder, _, _ in os.walk(path):
+        if folder != path:
             top_level_namespace = \
-            folder[len(getenv(constants.STORAGE_PATH_ENVNAME, str)):].split(os.path.sep)[1]
+            folder[len(path):].split(os.path.sep)[1]
             if not (
                 top_level_namespace.startswith('__') and top_level_namespace.endswith('__')
             ):
                 yield Namespace('/'.join(
-                    folder[len(getenv(constants.STORAGE_PATH_ENVNAME, str)):].split(os.path.sep)[1:]
+                    folder[len(path):].split(os.path.sep)[1:]
                 ))

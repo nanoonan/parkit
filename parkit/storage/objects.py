@@ -17,10 +17,13 @@ from parkit.utility import create_class
 logger = logging.getLogger(__name__)
 
 def load_object(
+    storage_path: str,
     namespace: str,
     name: str
 ) -> Optional[Any]:
-    env, name_db, _, _, descriptor_db = get_environment_threadsafe(namespace)
+    env, name_db, _, _, descriptor_db = get_environment_threadsafe(
+        storage_path, namespace
+    )
     with context(env, write = True, inherit = True, buffers = False):
         cursor = thread.local.cursors[id(name_db)]
         uuid = cursor.get(name.encode('utf-8'))
@@ -32,16 +35,25 @@ def load_object(
                     bytes(data) if isinstance(data, memoryview) else data
                 )
                 try:
-                    return create_class(descriptor['type'])('/'.join([namespace, name]))
+                    return create_class(
+                        descriptor['type'])('/'.join([namespace, name]),
+                        storage_path = storage_path
+                    )
                 except AttributeError:
                     return create_class('parkit.adapters.Object')(
-                        '/'.join([namespace, name]), type_check = False
+                        '/'.join([namespace, name]), type_check = False,
+                        storage_path = storage_path
                     )
     return None
 
-def descriptor_iter(namespace: str) -> Iterator[Tuple[str, Descriptor]]:
+def descriptor_iter(
+    storage_path: str,
+    namespace: str
+) -> Iterator[Tuple[str, Descriptor]]:
     descriptors = []
-    env, name_db, _, _, descriptor_db = get_environment_threadsafe(namespace)
+    env, name_db, _, _, descriptor_db = get_environment_threadsafe(
+        storage_path, namespace
+    )
     with context(env, write = False, inherit = True, buffers = False):
         name_cursor = thread.local.cursors[id(name_db)]
         descriptor_cursor = thread.local.cursors[id(descriptor_db)]
@@ -64,9 +76,12 @@ def descriptor_iter(namespace: str) -> Iterator[Tuple[str, Descriptor]]:
     for descriptor in descriptors:
         yield descriptor
 
-def name_iter(namespace: str) -> Iterator[str]:
+def name_iter(
+    storage_path: str,
+    namespace: str
+) -> Iterator[str]:
     names = []
-    env, name_db, _, _, _ = get_environment_threadsafe(namespace)
+    env, name_db, _, _, _ = get_environment_threadsafe(storage_path, namespace)
     with context(env, write = False, inherit = True, buffers = False):
         cursor = thread.local.cursors[id(name_db)]
         if cursor.first():
@@ -81,8 +96,11 @@ def name_iter(namespace: str) -> Iterator[str]:
     for name in names:
         yield name
 
-def object_iter(namespace: str) -> Iterator[Any]:
-    for name in name_iter(namespace):
-        obj = load_object(namespace, name)
+def object_iter(
+    storage_path: str,
+    namespace: str
+) -> Iterator[Any]:
+    for name in name_iter(storage_path, namespace):
+        obj = load_object(storage_path, namespace, name)
         if obj is not None:
             yield obj

@@ -26,7 +26,7 @@ from parkit.utility import (
 
 logger = logging.getLogger(__name__)
 
-_unspecified_class = types.new_class('__unspecified__')
+unspecified_class = types.new_class('__unspecified__')
 
 def mkiter(
     keys: bool = True,
@@ -110,7 +110,8 @@ class Dict(Sized, metaclass = DictMeta):
         bind: bool = True,
         type_check: bool = True,
         versioned: bool = True,
-        metadata: Optional[typing.Dict[str, Any]] = None
+        metadata: Optional[typing.Dict[str, Any]] = None,
+        storage_path: Optional[str] = None
     ):
         if path is not None:
             name, namespace = resolve_path(path)
@@ -119,7 +120,7 @@ class Dict(Sized, metaclass = DictMeta):
         Entity.__init__(
             self, name, properties = [{}, {}], namespace = namespace,
             create = create, bind = bind, versioned = versioned,
-            type_check = type_check, metadata = metadata
+            type_check = type_check, metadata = metadata, storage_path = storage_path
         )
 
     def __getitem__(
@@ -227,7 +228,7 @@ class Dict(Sized, metaclass = DictMeta):
     def pop(
         self,
         key: Any,
-        default: Any = _unspecified_class(),
+        default: Any = unspecified_class(),
         /
     ) -> Any:
         key = self.encode_key(key) if self.encode_key else key
@@ -249,7 +250,7 @@ class Dict(Sized, metaclass = DictMeta):
         finally:
             if txn and cursor:
                 cursor.close()
-        if result is None and isinstance(default, _unspecified_class):
+        if result is None and isinstance(default, unspecified_class):
             raise KeyError()
         if result is None:
             return default

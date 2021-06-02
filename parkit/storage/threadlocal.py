@@ -24,4 +24,6 @@ class ThreadLocalVars(threading.local):
         self.changed: Set[Any] = set()
         self.cursors: Dict[int, lmdb.Cursor] = collections.defaultdict(lambda: None)
 
+        self.storage_path: str = None
+
 local = ThreadLocalVars()

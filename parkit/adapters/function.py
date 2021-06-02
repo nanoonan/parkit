@@ -27,8 +27,7 @@ from parkit.adapters.array import Array
 from parkit.adapters.dict import Dict
 from parkit.adapters.observer import ModuleObserver
 from parkit.adapters.queue import Queue
-
-from parkit.pool import terminate_node
+from parkit.cluster.manage import terminate_node
 from parkit.storage import (
     Entity,
     transaction
@@ -42,6 +41,8 @@ from parkit.utility import (
 )
 
 logger = logging.getLogger(__name__)
+
+module_observer = ModuleObserver()
 
 class AsyncTraces():
 
@@ -76,7 +77,7 @@ class AsyncTraces():
                     if psutil.pid_exists(record['pid']):
                         proc = psutil.Process(record['pid'])
                         cmdline = proc.cmdline()
-                        if record['node_uuid'] in cmdline:
+                        if record['node_uid'] in cmdline:
                             running = True
                 except psutil.NoSuchProcess:
                     pass
@@ -125,11 +126,10 @@ class AsyncTraces():
                 elif record['status'] == 'running':
                     terminate = True
             if terminate:
-                cluster_uid = create_string_digest(getenv(constants.STORAGE_PATH_ENVNAME, str))
-                try:
-                    terminate_node(record['node_uuid'], cluster_uid)
-                except FileNotFoundError:
-                    pass
+                terminate_node(
+                    record['node_uid'],
+                    create_string_digest(self._traces.storage_path)
+                )
 
         def __str__(self) -> str:
             record = self.record
@@ -187,24 +187,26 @@ end: {4}
     def count(self) -> int:
         return len(self._traces)
 
-module_observer = ModuleObserver()
-
 class Function(Dict):
 
     _target_function: Optional[Callable[..., Any]] = None
 
     def __init__(
         self,
-        path: str,
+        path: Optional[str] = None,
         /, *,
         target: Optional[Callable[..., Any]] = None,
         create: bool = True,
         bind: bool = True,
-        versioned: bool = False,
+        versioned: bool = True,
         type_check: bool = True,
-        metadata: Optional[typing.Dict[str, Any]] = None
+        metadata: Optional[typing.Dict[str, Any]] = None,
+        storage_path: Optional[str] = None
     ):
-        name, namespace = resolve_path(path)
+        if path is not None:
+            name, namespace = resolve_path(path)
+        else:
+            name = namespace = None
 
         def on_create():
             self.__args = ()
@@ -234,7 +236,7 @@ class Function(Dict):
         Entity.__init__(
             self, name, properties = [{}, {}], namespace = constants.TASK_NAMESPACE,
             create = create, bind = bind, versioned = versioned, on_create = on_create,
-            type_check = type_check, metadata = metadata
+            type_check = type_check, metadata = metadata, storage_path = storage_path
         )
 
         if target:
@@ -354,20 +356,19 @@ class Function(Dict):
                 start_timestamp = time.time_ns(),
                 end_timestamp = None,
                 pid = None,
-                node_uuid = None
+                node_uid = None
             ))
             process_queue.put_nowait((self, trace_index, args, kwargs))
             return AsyncTraces.AsyncTrace(self.__traces, trace_index)
 
     def drop(self):
-        cluster_uid = create_string_digest(getenv(constants.STORAGE_PATH_ENVNAME, str))
         with transaction(constants.TASK_NAMESPACE):
             for record in self.__traces[:]:
                 if record['status'] == 'running':
-                    try:
-                        terminate_node(record['node_uuid'], cluster_uid)
-                    except FileNotFoundError:
-                        pass
+                    terminate_node(
+                        record['node_uid'],
+                        create_string_digest(self.storage_path)
+                    )
             self.__traces.drop()
             self.__code.drop()
             self.__latest.drop()

@@ -1,7 +1,8 @@
+# pylint: disable = invalid-name, global-statement, too-few-public-methods
 import logging
 
 from typing import (
-    Any, List
+    Any, List, Optional
 )
 
 import parkit.constants as constants
@@ -9,19 +10,30 @@ import parkit.storage.threadlocal as thread
 
 from parkit.adapters.array import Array
 
-syslog: Array = Array(constants.SYSLOG_PATH)
-
 cache: List[str] = []
+
+log: Optional[Array] = None
+
+class SysLog():
+
+    def __new__(cls):
+        global log
+        if log is None:
+            log = Array(constants.SYSLOG_PATH)
+        return log
 
 class LogHandler(logging.StreamHandler):
 
     def emit(self, record: Any):
+        global log
+        if log is None:
+            log = Array(constants.SYSLOG_PATH)
         if not thread.local.transaction:
             if cache:
                 for entry in cache:
-                    syslog.append(entry)
+                    log.append(entry)
             cache.clear()
-            syslog.append(self.format(record))
+            log.append(self.format(record))
         else:
             cache.append(self.format(record))
 

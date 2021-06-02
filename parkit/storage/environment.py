@@ -5,8 +5,8 @@ import functools
 import logging
 import os
 import struct
-import tempfile
 import threading
+import uuid
 
 from typing import (
     cast, Dict, Optional, Tuple, Union
@@ -17,140 +17,211 @@ import lmdb
 import parkit.constants as constants
 import parkit.storage.threadlocal as thread
 
+from parkit.cluster.manage import (
+    launch_node,
+    scan_nodes
+)
 from parkit.exceptions import (
     ContextError,
+    StoragePathError,
     TransactionError
 )
 from parkit.profiles import get_lmdb_profiles
 from parkit.typeddicts import LMDBProperties
 from parkit.utility import (
+    create_string_digest,
     envexists,
     getenv,
-    resolve_namespace,
-    setenv
+    resolve_namespace
 )
 
 logger = logging.getLogger(__name__)
 
-_environments_lock: threading.Lock = threading.Lock()
+environments_lock: threading.Lock = threading.Lock()
 
-_environments: Dict[
+environments: Dict[
     str,
     Tuple[lmdb.Environment, lmdb._Database, lmdb._Database, lmdb._Database, lmdb._Database]
 ] = {}
 
-_databases_lock: threading.Lock = threading.Lock()
+databases_lock: threading.Lock = threading.Lock()
 
-_databases: Dict[Union[int, str], lmdb._Database] = {}
+databases: Dict[Union[int, str], lmdb._Database] = {}
 
-_mapsizes: Dict[str, int] = \
+mapsizes: Dict[str, int] = \
 collections.defaultdict(lambda: get_lmdb_profiles()['default']['LMDB_INITIAL_MAP_SIZE'])
 
-_settings_initialized: bool = False
-
 def close_environments_atexit():
-    with _environments_lock:
-        for env, _, _, _, _ in _environments.values():
+    with environments_lock:
+        for env, _, _, _, _ in environments.values():
             try:
                 env.close()
             except lmdb.Error:
-                logger.exception('Trapped error on pid %i', os.getpid())
+                logger.exception('close environment error on pid %i', os.getpid())
 
 atexit.register(close_environments_atexit)
 
-def initialize_settings():
+def make_namespace_key(storage_path: str, namespace: str) -> str:
+    return ':'.join([storage_path, namespace])
 
-    if _settings_initialized:
-        return
+def resolve_storage_path(path: Optional[str] = None) -> str:
+    if path is None:
+        if thread.local.storage_path is None:
+            if envexists(constants.STORAGE_PATH_ENVNAME):
+                set_storage_path(getenv(constants.STORAGE_PATH_ENVNAME, str))
+            else:
+                raise StoragePathError()
+        return thread.local.storage_path
+    check_storage_path(path)
+    return path
 
-    install_path = os.path.abspath(getenv(constants.STORAGE_PATH_ENVNAME, str))
-    env_path = os.path.join(install_path, *constants.SETTINGS_NAMESPACE.split('/'))
-    if os.path.exists(env_path):
-        if not os.path.isdir(env_path):
-            raise ValueError('Namespace path exists but is not a directory')
+def get_storage_path() -> Optional[str]:
+    try:
+        return resolve_storage_path()
+    except StoragePathError:
+        return None
+
+def set_storage_path(path: str):
+    path = os.path.abspath(path)
+    check_storage_path(path)
+    thread.local.storage_path = path
+    initialize_storage_path(thread.local.storage_path)
+    if not envexists(constants.NODE_UID_ENVNAME) or \
+    not envexists(constants.CLUSTER_UID_ENVNAME):
+        if getenv(constants.POOL_AUTOSTART_ENVNAME, bool):
+            cluster_uid = create_string_digest(path)
+            if 'monitor' not in \
+            [node_uid.split('-')[0] for node_uid in scan_nodes(cluster_uid)]:
+                launch_node(
+                    'monitor-{0}'.format(create_string_digest(str(uuid.uuid4()))),
+                    'parkit.cluster.monitordaemon',
+                    cluster_uid
+                )
+
+def check_storage_path(path: str):
+    if os.path.exists(path):
+        if not os.path.isdir(path):
+            raise StoragePathError()
     else:
+        if not os.access(os.path.dirname(path), os.W_OK):
+            raise StoragePathError()
         try:
-            os.makedirs(env_path)
+            os.makedirs(path)
         except FileExistsError:
             pass
-    env = lmdb.open(env_path, subdir = True, create = True)
-    _environments[constants.SETTINGS_NAMESPACE] = (env, None, None, None, None)
-    try:
-        cache = {}
-        txn = None
-        txn = env.begin(write = True)
-        cursor = txn.cursor()
-        if cursor.first():
-            while True:
-                cache[cursor.key().decode('utf-8')] = struct.unpack('@N', cursor.value())[0]
-                if not cursor.next():
-                    break
-        txn.commit()
-        for key, value in cache.items():
-            _mapsizes[key] = value
-    except BaseException as exc:
-        if txn:
-            txn.abort()
-        raise TransactionError() from exc
+        except OSError as exc:
+            raise StoragePathError() from exc
 
-    _settings_initialzed = True
+def initialize_storage_path(storage_path: str):
 
-def _set_namespace_size_threadsafe(
-    namespace: str,
-    size: int
-):
-    assert constants.SETTINGS_NAMESPACE in _environments
-    with _environments_lock:
-        initialize_settings()
-        env, _, _, _, _ = _environments[constants.SETTINGS_NAMESPACE]
+    namespace_key = make_namespace_key(storage_path, constants.SETTINGS_NAMESPACE)
+
+    if namespace_key in environments:
+        return
+
+    with environments_lock:
+
+        if namespace_key in environments:
+            return
+
+        env_path = os.path.join(storage_path, *constants.SETTINGS_NAMESPACE.split('/'))
+
+        check_storage_path(env_path)
+
+        env = lmdb.open(env_path, subdir = True, create = True)
+
+        environments[namespace_key] = (env, None, None, None, None)
+
         try:
+
+            cache = {}
             txn = None
             txn = env.begin(write = True)
-            assert txn.put(key = namespace.encode('utf-8'), value = struct.pack('@N', size))
+            cursor = txn.cursor()
+            if cursor.first():
+                while True:
+                    cache[cursor.key().decode('utf-8')] = struct.unpack('@N', cursor.value())[0]
+                    if not cursor.next():
+                        break
             txn.commit()
-            _mapsizes[namespace] = size
-            if namespace in _environments:
-                env, _, _, _, _ = _environments[namespace]
-                env.set_mapsize(size)
+
+            for namespace, size in cache.items():
+                mapsizes[make_namespace_key(storage_path, namespace)] = size
+
         except BaseException as exc:
             if txn:
                 txn.abort()
             raise TransactionError() from exc
 
+def _set_namespace_size_threadsafe(
+    size: int,
+    storage_path: str,
+    namespace: str
+):
+    with environments_lock:
+
+        namespace_key = make_namespace_key(storage_path, namespace)
+
+        if namespace_key in environments:
+
+            settings_env, _, _, _, _ = environments[
+                make_namespace_key(storage_path, constants.SETTINGS_NAMESPACE)
+            ]
+
+            cached_size = mapsizes[namespace_key]
+
+            try:
+                txn = None
+                txn = settings_env.begin(write = True)
+                assert txn.put(key = namespace.encode('utf-8'), value = struct.pack('@N', size))
+                mapsizes[namespace_key] = size
+                target_env, _, _, _, _ = environments[namespace_key]
+                target_env.set_mapsize(size)
+                txn.commit()
+            except BaseException as exc:
+                mapsizes[namespace_key] = cached_size
+                if txn:
+                    txn.abort()
+                raise TransactionError() from exc
+
 def get_namespace_size(
-    namespace: Optional[str] = None
+    storage_path: str,
+    namespace: Optional[str] = None,
 ) -> int:
     namespace = cast(
         str,
         resolve_namespace(namespace) if namespace else constants.DEFAULT_NAMESPACE
     )
-    return _mapsizes[namespace]
+    namespace_key = make_namespace_key(storage_path, namespace)
+    return mapsizes[namespace_key]
 
 def set_namespace_size(
     size: int,
-    /, *,
+    storage_path: str,
     namespace: Optional[str] = None
 ):
+    assert size > 0
     if thread.local.transaction:
-        raise ContextError('Cannot set namespace size in a transaction')
-    if size <= 0:
-        raise ValueError('Size must be positive')
+        raise ContextError()
     namespace = resolve_namespace(namespace) if namespace else constants.DEFAULT_NAMESPACE
-    _set_namespace_size_threadsafe(cast(str, namespace), size)
+    _set_namespace_size_threadsafe(size, storage_path, cast(str, namespace))
 
 def get_database_threadsafe(key: Union[int, str]) -> Optional[lmdb._Database]:
     try:
-        with _databases_lock:
-            return _databases[key]
+        with databases_lock:
+            return databases[key]
     except KeyError:
         return None
 
 def open_database_threadsafe(
-    txn: lmdb.Transaction, env: lmdb.Environment, dbuid: str,
-    properties: LMDBProperties, create: bool = False
+    txn: lmdb.Transaction,
+    env: lmdb.Environment,
+    dbuid: str,
+    properties: LMDBProperties,
+    create: bool = False
 ) -> lmdb._Database:
-    with _databases_lock:
-        if dbuid not in _databases:
+    with databases_lock:
+        if dbuid not in databases:
             database = env.open_db(
                 txn = txn, key = dbuid.encode('utf-8'),
                 integerkey = properties['integerkey'] if 'integerkey' in properties else False,
@@ -160,49 +231,39 @@ def open_database_threadsafe(
                 reverse_key = properties['reverse_key'] if 'reverse_key' in properties else False,
                 create = create
             )
-            _databases[id(database)] = database
-            _databases[dbuid] = database
-    return _databases[dbuid]
+            databases[id(database)] = database
+            databases[dbuid] = database
+    return databases[dbuid]
 
 @functools.lru_cache(None)
-def get_environment_threadsafe(namespace: str) -> \
-Tuple[lmdb.Environment, lmdb._Database, lmdb._Database, lmdb._Database, lmdb._Database]:
-    if namespace not in _environments:
-        with _environments_lock:
-            if namespace not in _environments:
-                if not envexists(constants.STORAGE_PATH_ENVNAME):
-                    try:
-                        os.makedirs(
-                            os.path.join(
-                                tempfile.gettempdir(),
-                                constants.PARKIT_TEMP_INSTALLATION_DIRNAME
-                            )
-                        )
-                    except FileExistsError:
-                        pass
-                    storage_path = os.path.abspath(os.path.join(
-                        tempfile.gettempdir(), constants.PARKIT_TEMP_INSTALLATION_DIRNAME
-                    ))
-                    setenv(constants.STORAGE_PATH_ENVNAME, storage_path)
-                else:
-                    storage_path = getenv(constants.STORAGE_PATH_ENVNAME, str)
+def get_environment_threadsafe(
+    storage_path: str,
+    namespace: str
+) -> Tuple[
+    lmdb.Environment, lmdb._Database, lmdb._Database,
+    lmdb._Database, lmdb._Database
+]:
+
+    namespace_key = make_namespace_key(storage_path, namespace)
+
+    if namespace_key not in environments:
+
+        with environments_lock:
+
+            if namespace_key not in environments:
+
                 env_path = os.path.join(storage_path, *namespace.split('/'))
-                if os.path.exists(env_path):
-                    if not os.path.isdir(env_path):
-                        raise ValueError('Namespace path exists but is not a directory')
-                else:
-                    try:
-                        os.makedirs(env_path)
-                    except FileExistsError:
-                        pass
-                initialize_settings()
+
+                check_storage_path(env_path)
+
                 profile = get_lmdb_profiles()['default']
+
                 env = lmdb.open(
                     env_path, subdir = True, create = True,
                     writemap = profile['LMDB_WRITE_MAP'],
                     metasync = profile['LMDB_METASYNC'],
                     map_async = profile['LMDB_MAP_ASYNC'],
-                    map_size = _mapsizes[namespace],
+                    map_size = mapsizes[namespace],
                     max_dbs = profile['LMDB_MAX_DBS'],
                     max_spare_txns = profile['LMDB_MAX_SPARE_TXNS'],
                     max_readers = profile['LMDB_MAX_READERS'],
@@ -210,22 +271,27 @@ Tuple[lmdb.Environment, lmdb._Database, lmdb._Database, lmdb._Database, lmdb._Da
                     sync = profile['LMDB_SYNC'],
                     meminit = profile['LMDB_MEMINIT']
                 )
+
                 env.reader_check()
+
                 name_db = env.open_db(
                     key = constants.NAME_DATABASE.encode('utf-8')
                 )
-                _databases[id(name_db)] = name_db
+                databases[id(name_db)] = name_db
                 version_db = env.open_db(
                     key = constants.VERSION_DATABASE.encode('utf-8')
                 )
-                _databases[id(version_db)] = version_db
+                databases[id(version_db)] = version_db
                 descriptor_db = env.open_db(
                     key = constants.DESCRIPTOR_DATABASE.encode('utf-8')
                 )
-                _databases[id(descriptor_db)] = descriptor_db
+                databases[id(descriptor_db)] = descriptor_db
                 attribute_db = env.open_db(
                     key = constants.ATTRIBUTE_DATABASE.encode('utf-8')
                 )
-                _databases[id(attribute_db)] = attribute_db
-                _environments[namespace] = (env, name_db, attribute_db, version_db, descriptor_db)
-    return _environments[namespace]
+                databases[id(attribute_db)] = attribute_db
+
+                environments[namespace_key] = \
+                (env, name_db, attribute_db, version_db, descriptor_db)
+
+    return environments[namespace_key]

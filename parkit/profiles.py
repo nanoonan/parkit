@@ -6,7 +6,7 @@ from parkit.typeddicts import Profiles
 
 logger = logging.getLogger(__name__)
 
-_lmdb_profiles: Profiles = constants.LMDB_PROFILES
+lmdb_profiles: Profiles = constants.LMDB_PROFILES
 
 def get_lmdb_profiles() -> Profiles:
-    return _lmdb_profiles
+    return lmdb_profiles

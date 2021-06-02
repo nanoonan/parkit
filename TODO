@@ -1,4 +1,8 @@
-- get_metadata for Dict
+0.0.9
 - redo docs (example based)
 - review process code
-- add stream class
+
+0.0.10
+- get_metadata for Dict
+- add Stream class
+- add extend to Array

@@ -25,7 +25,8 @@ from parkit.storage.entitymeta import EntityMeta
 from parkit.storage.environment import (
     get_database_threadsafe,
     open_database_threadsafe,
-    get_environment_threadsafe
+    get_environment_threadsafe,
+    resolve_storage_path
 )
 from parkit.storage.namespace import Namespace
 from parkit.typeddicts import (
@@ -46,7 +47,7 @@ class Entity(metaclass = EntityMeta):
     __slots__ = {
         '__env', '__encname', '__namespace', '__namedb',
         '__descdb', '__versdb', '__attrdb', '__userdb',
-        '__uuidbytes', '__vers'
+        '__uuidbytes', '__vers', '__storpath'
     }
 
     def __init__(
@@ -60,7 +61,8 @@ class Entity(metaclass = EntityMeta):
         versioned: bool = False,
         type_check: bool = True,
         on_create: Optional[Callable[[], None]] = None,
-        metadata: Optional[Dict[str, Any]] = None
+        metadata: Optional[Dict[str, Any]] = None,
+        storage_path: Optional[str] = None
     ):
 
         if not create and not bind:
@@ -74,6 +76,7 @@ class Entity(metaclass = EntityMeta):
 
         self.__encname: bytes = name.encode('utf-8')
         self.__namespace: str = namespace if namespace else constants.DEFAULT_NAMESPACE
+        self.__storpath: str = resolve_storage_path(storage_path)
 
         self.__env: lmdb.Environment
         self.__namedb: lmdb._Database
@@ -81,8 +84,9 @@ class Entity(metaclass = EntityMeta):
         self.__versdb: lmdb._Database
         self.__descdb: lmdb._Database
 
-        self.__env, self.__namedb, self.__attrdb, self.__versdb, \
-        self.__descdb = get_environment_threadsafe(self.__namespace)
+        self.__env, self.__namedb, self.__attrdb, self.__versdb, self.__descdb = \
+        get_environment_threadsafe(self.__storpath, self.__namespace)
+
         self.__userdb: List[lmdb._Database] = []
 
         self.__uuidbytes: bytes
@@ -118,18 +122,20 @@ class Entity(metaclass = EntityMeta):
 
     def __getstate__(self) -> Tuple[str, str, str, str]:
         return (
-            get_qualified_class_name(self),
+            self.__storpath,
             self.__namespace,
             self.__encname.decode('utf-8'),
             str(uuid.UUID(bytes = self.__uuidbytes))
         )
 
     def __setstate__(self, from_wire: Tuple[str, str, str, str]):
-        _, self.__namespace, name, uuidstr = from_wire
+        self.__storpath, self.__namespace, name, uuidstr = from_wire
         self.__encname = name.encode('utf-8')
         self.__uuidbytes = uuid.UUID(uuidstr).bytes
-        self.__env, self.__namedb, self.__attrdb, self.__versdb, \
-        self.__descdb = get_environment_threadsafe(self.__namespace)
+
+        self.__env, self.__namedb, self.__attrdb, self.__versdb, self.__descdb = \
+        get_environment_threadsafe(self.__storpath, self.__namespace)
+
         self.__userdb = []
         with context(self.__env, write = False, inherit = True, buffers = False):
             txn = thread.local.transaction
@@ -245,6 +251,10 @@ class Entity(metaclass = EntityMeta):
         raise exc_value
 
     @property
+    def storage_path(self) -> str:
+        return self.__storpath
+
+    @property
     def path(self) -> str:
         return '/'.join([
             self.__namespace,
@@ -282,6 +292,7 @@ class Entity(metaclass = EntityMeta):
             memory_size = get_memory_size(self),
             encoded_name = self.__encname,
             namespace = self.__namespace,
+            storage_path = self.__storpath,
             uuid_bytes = self.__uuidbytes,
             environment = self.__env,
             name_db = (id(self.__namedb), self.__namedb),

@@ -1,8 +1,6 @@
 # pylint: disable = invalid-name, broad-except, protected-access
 import logging
 import os
-import platform
-import sys
 import time
 
 from typing import (
@@ -17,10 +15,16 @@ from parkit.adapters import (
     Scheduler,
     Task,
 )
+from parkit.cluster.manage import create_pid_filepath
 from parkit.exceptions import ObjectNotFoundError
-from parkit.pool.commands import create_pid_filepath
-from parkit.storage import Namespace
-from parkit.utility import polling_loop
+from parkit.storage import (
+    get_storage_path,
+    Namespace
+)
+from parkit.utility import (
+    create_string_digest,
+    polling_loop
+)
 
 logger = logging.getLogger(__name__)
 
@@ -35,8 +39,10 @@ if __name__ == '__main__':
         with daemoniker.Daemonizer() as (is_setup, daemonizer):
 
             if is_setup:
-                node_uid = sys.argv[1]
-                cluster_uid = sys.argv[2]
+                assert constants.NODE_UID_ENVNAME in os.environ and \
+                constants.CLUSTER_UID_ENVNAME in os.environ
+                node_uid = os.environ[constants.NODE_UID_ENVNAME]
+                cluster_uid = os.environ[constants.CLUSTER_UID_ENVNAME]
                 pid_filepath = create_pid_filepath(node_uid, cluster_uid)
 
             is_parent, node_uid, cluster_uid, pid_filepath = \
@@ -47,8 +53,7 @@ if __name__ == '__main__':
             if is_parent:
                 pass
 
-        if platform.system() == 'Windows':
-            del os.environ['__INVOKE_DAEMON__']
+        assert cluster_uid == create_string_digest(get_storage_path())
 
         tasks: Dict[str, Tuple[Task, Optional[int], Optional[Scheduler]]] = {}
 

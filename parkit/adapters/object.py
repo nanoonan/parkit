@@ -40,7 +40,8 @@ class Object(Entity, metaclass = EntityMeta):
         bind: bool = True,
         versioned: bool = True,
         type_check: bool = True,
-        metadata: Optional[Dict[str, Any]] = None
+        metadata: Optional[Dict[str, Any]] = None,
+        storage_path: Optional[str] = None
     ):
         if path is not None:
             name, namespace = resolve_path(path)
@@ -49,7 +50,7 @@ class Object(Entity, metaclass = EntityMeta):
         super().__init__(
             name, properties = [], namespace = namespace,
             create = create, bind = bind, versioned = versioned,
-            type_check = type_check, metadata = metadata
+            type_check = type_check, metadata = metadata, storage_path = storage_path
         )
 
     def __getattr__(

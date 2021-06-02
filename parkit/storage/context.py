@@ -16,7 +16,8 @@ from parkit.exceptions import ContextError
 from parkit.storage.entitymeta import EntityMeta
 from parkit.storage.environment import (
     get_database_threadsafe,
-    get_environment_threadsafe
+    get_environment_threadsafe,
+    resolve_storage_path
 )
 from parkit.utility import resolve_namespace
 
@@ -45,7 +46,7 @@ def context(
     cur_ctx = ctx_stack[-1] if ctx_stack else None
     inherit = inherit if cur_ctx else False
     if not inherit and write and cur_ctx and not cur_ctx[3]:
-        raise ContextError('Cannot open transaction in snapshot context')
+        raise ContextError()
     try:
         if not inherit:
             txn = env.begin(
@@ -97,25 +98,29 @@ def transaction(
     obj: Optional[Union[str, Any]] = None,
     /, *,
     zero_copy: bool = True,
-    isolated: bool = False
+    isolated: bool = False,
+    storage_path: Optional[str] = None
 ) -> ContextManager:
     if isinstance(obj, str):
         namespace = resolve_namespace(obj) \
         if obj else constants.DEFAULT_NAMESPACE
     else:
         namespace = obj.path if obj is not None else constants.DEFAULT_NAMESPACE
-    env, _, _, _, _ = get_environment_threadsafe(namespace)
+    storage_path = resolve_storage_path(storage_path)
+    env, _, _, _, _ = get_environment_threadsafe(storage_path, namespace)
     return context(env, write = True, inherit = not isolated, buffers = zero_copy)
 
 def snapshot(
     obj: Optional[Union[str, Any]] = None,
     /, *,
-    zero_copy: bool = True
+    zero_copy: bool = True,
+    storage_path: Optional[str] = None
 ) -> ContextManager:
     if isinstance(obj, str):
         namespace = resolve_namespace(obj) \
         if obj else constants.DEFAULT_NAMESPACE
     else:
         namespace = obj.path if obj is not None else constants.DEFAULT_NAMESPACE
-    env, _, _, _, _ = get_environment_threadsafe(namespace)
+    storage_path = resolve_storage_path(storage_path)
+    env, _, _, _, _ = get_environment_threadsafe(storage_path, namespace)
     return context(env, write = False, inherit = True, buffers = zero_copy)

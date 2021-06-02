@@ -1,56 +1,45 @@
 import logging
-import pickle
+import sys
 
 from typing import (
-    Optional, Union
+    List, Optional, Union
 )
 
 import parkit.constants as constants
 import parkit.storage as storage
 
-from parkit.adapters.dict import Dict
-from parkit.pool.commands import (
-    launch_node,
-    scan_nodes,
-    terminate_all_nodes
-)
+from parkit.adapters import Object
 from parkit.utility import (
-    create_string_digest,
+    get_calling_modules,
     getenv,
     polling_loop
 )
 
 logger = logging.getLogger(__name__)
 
-pool_state = Dict(constants.POOL_STATE_DICT_PATH)
+def bind_symbol(obj: Object, overwrite: bool = False) -> bool:
+    caller = get_calling_modules()[3]
+    if caller == 'IPython.core.interactiveshell':
+        module = sys.modules['__main__']
+    else:
+        module = sys.modules[caller]
+    if not overwrite and hasattr(module, obj.name):
+        return False
+    module.__setattr__(obj.name, obj)
+    return True
 
-def self():
-    try:
-        return pickle.loads(getenv(constants.SELF_ENVNAME, str).encode())
-    except ValueError:
-        return None
-
-def restart():
-    cluster_uid = create_string_digest(getenv(constants.STORAGE_PATH_ENVNAME, str))
-    terminate_all_nodes(cluster_uid)
-    wait_until(lambda: not scan_nodes(cluster_uid))
-    launch_node(
-        'monitor',
-        'parkit.pool.monitordaemon',
-        cluster_uid
-    )
-
-def shutdown():
-    cluster_uid = create_string_digest(getenv(constants.STORAGE_PATH_ENVNAME, str))
-    terminate_all_nodes(cluster_uid)
-
-def get_pool_size() -> int:
-    if 'pool_size' not in pool_state:
-        return getenv(constants.POOL_SIZE_ENVNAME, int)
-    return pool_state['pool_size']
-
-def set_pool_size(size: int):
-    pool_state['pool_size'] = size
+def bind_symbols(
+    namespace: Union[str, storage.Namespace],
+    /, *,
+    overwrite: bool = False
+) -> List[str]:
+    if isinstance(namespace, str):
+        namespace = storage.Namespace(namespace)
+    symbols = []
+    for obj in namespace:
+        if bind_symbol(obj, overwrite = overwrite):
+            symbols.append(obj.name)
+    return symbols
 
 def wait_until(
     condition,

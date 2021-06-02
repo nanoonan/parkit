@@ -1,16 +1,22 @@
+from typing import cast
 
 from parkit import (
+    Array,
     snapshot,
-    syslog,
+    SysLog,
     wait_until
 )
 
-length = len(syslog)
+log: Array = cast(Array, SysLog())
+
+length = len(log)
+
 print('welcome to syslog')
 print('current log size:', length)
+
 while True:
-    wait_until(lambda: len(syslog) > length)
-    with snapshot(syslog.namespace):
-        for record in syslog[length:]:
+    wait_until(lambda: len(log) > length)
+    with snapshot(log.namespace):
+        for record in log[length:]:
             print(record)
-        length = len(syslog)
+        length = len(log)

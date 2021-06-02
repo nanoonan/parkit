@@ -84,7 +84,8 @@ class _Queue(Sized):
         bind: bool = True,
         type_check: bool = True,
         metadata: Optional[Dict[str, Any]] = None,
-        maxsize: int = 0
+        maxsize: int = 0,
+        storage_path: Optional[str] = None
     ):
         if path is not None:
             name, namespace = resolve_path(path)
@@ -96,7 +97,8 @@ class _Queue(Sized):
             namespace = namespace,
             create = create, bind = bind,
             type_check = type_check,
-            metadata = metadata
+            metadata = metadata,
+            storage_path = storage_path
         )
         if '_maxsize' not in self.attributes():
             self._maxsize = maxsize if maxsize > 0 else math.inf

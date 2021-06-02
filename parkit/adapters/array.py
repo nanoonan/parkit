@@ -203,7 +203,8 @@ class Array(Sized, metaclass = ArrayMeta):
         create: bool = True,
         type_check: bool = True,
         bind: bool = True,
-        metadata: Optional[Dict[str, Any]] = None
+        metadata: Optional[Dict[str, Any]] = None,
+        storage_path: Optional[str] = None
     ):
         if path is not None:
             name, namespace = resolve_path(path)
@@ -212,7 +213,7 @@ class Array(Sized, metaclass = ArrayMeta):
         Entity.__init__(
             self, name, properties = [{'integerkey': True}, {'integerkey': True}],
             namespace = namespace, create = create, bind = bind,
-            type_check = type_check, metadata = metadata
+            type_check = type_check, metadata = metadata, storage_path = storage_path
         )
 
     def __getitem__(

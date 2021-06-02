@@ -1,6 +1,3 @@
-import logging
-
-logger = logging.getLogger(__name__)
 
 class TransactionError(RuntimeError):
     pass
@@ -12,4 +9,7 @@ class ObjectExistsError(RuntimeError):
     pass
 
 class ObjectNotFoundError(RuntimeError):
+    pass
+
+class StoragePathError(RuntimeError):
     pass
