@@ -44,6 +44,6 @@ Descriptor = TypedDict(
         'created': str,
         'type': str,
         'origin': str,
-        'custom': Dict[str, Any]
+        'metadata': Dict[str, Any]
     }
 )

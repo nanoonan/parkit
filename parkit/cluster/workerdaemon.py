@@ -1,28 +1,30 @@
 # pylint: disable = invalid-name, broad-except, protected-access
 import logging
 import os
+import platform
 import queue
 import time
+import uuid
 
 import daemoniker
 
 import parkit.constants as constants
 
-from parkit.adapters import Queue
+from parkit.adapters.queue import Queue
 from parkit.cluster.manage import (
     create_pid_filepath,
     terminate_node
 )
 from parkit.exceptions import ObjectNotFoundError
-from parkit.storage import (
-    get_storage_path,
-    transaction
-)
-from parkit.threads import monitor_restarter
+from parkit.functions import bind_symbol
+from parkit.pidtable import set_pid_entry
+from parkit.storage.transaction import transaction
+
 from parkit.utility import (
     create_string_digest,
     getenv,
-    polling_loop
+    polling_loop,
+    setenv
 )
 
 logger = logging.getLogger(__name__)
@@ -51,9 +53,15 @@ if __name__ == '__main__':
             if is_parent:
                 pass
 
-        assert cluster_uid == create_string_digest(get_storage_path())
+        if platform.system() == 'Windows':
+            os.environ['__PARKIT_DAEMON__'] = 'True'
+            if '__INVOKE_DAEMON__' in os.environ:
+                del os.environ['__INVOKE_DAEMON__']
 
-        monitor_restarter.start()
+        # storage_path = get_storage_path()
+        # assert storage_path is not None
+        # assert cluster_uid == create_string_digest(storage_path)
+        storage_path = None
 
         task_queue = Queue(constants.TASK_QUEUE_PATH)
 
@@ -61,6 +69,7 @@ if __name__ == '__main__':
 
         polling_interval = getenv(constants.WORKER_POLLING_INTERVAL_ENVNAME, float)
 
+        logger.info('worker ready %s', node_uid)
         for _ in polling_loop(polling_interval):
             while True:
                 try:
@@ -70,7 +79,7 @@ if __name__ == '__main__':
                         assert node_uid is not None
                         terminate_node(
                             node_uid,
-                            cluster_uid
+                            storage_path
                         )
                         while True:
                             time.sleep(1)
@@ -78,27 +87,26 @@ if __name__ == '__main__':
                     pass
                 try:
                     if len(task_queue):
-                        task, trace_index, args, kwargs = \
-                        task_queue.get_nowait()
+                        setenv(constants.ANONYMOUS_SCOPE_FLAG_ENVNAME, 'True')
+                        with transaction(constants.TASK_NAMESPACE):
+                            task, trace_index, args, kwargs = task_queue.get_nowait()
+                            record = task._Function__traces[trace_index]
+                            if record['status'] == 'submitted':
+                                record['pid'] = os.getpid()
+                                record['node_uid'] = node_uid
+                                record['status'] = 'running'
+                                task._Function__traces[trace_index] = record
+                            else:
+                                assert record['status'] == 'cancelled'
+                                continue
                     else:
                         break
                 except ObjectNotFoundError:
                     continue
                 except queue.Empty:
                     break
-                try:
-                    with transaction(constants.TASK_NAMESPACE):
-                        record = task._Function__traces[trace_index]
-                        if record['status'] == 'submitted':
-                            record['pid'] = os.getpid()
-                            record['node_uid'] = node_uid
-                            record['status'] = 'running'
-                            task._Function__traces[trace_index] = record
-                        else:
-                            assert record['status'] == 'cancelled'
-                            continue
-                except ObjectNotFoundError:
-                    continue
+                finally:
+                    setenv(constants.ANONYMOUS_SCOPE_FLAG_ENVNAME, None)
                 try:
                     result = exc_value = None
                     result = task.invoke(
@@ -118,6 +126,9 @@ if __name__ == '__main__':
                             task._Function__traces[trace_index] = record
                     except ObjectNotFoundError:
                         pass
+                    finally:
+                        setenv(constants.PROCESS_UUID_ENVNAME, str(uuid.uuid4()))
+                        set_pid_entry()
 
     except (SystemExit, KeyboardInterrupt, GeneratorExit):
         pass

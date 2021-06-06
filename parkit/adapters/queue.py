@@ -1,4 +1,4 @@
-# pylint: disable = broad-except, no-value-for-parameter, non-parent-init-called, super-init-not-called
+# pylint: disable = not-callable, broad-except
 import logging
 import math
 import pickle
@@ -13,17 +13,13 @@ import parkit.constants as constants
 import parkit.storage.threadlocal as thread
 
 from parkit.adapters.sized import Sized
-from parkit.storage import (
-    Entity,
-    EntityMeta,
-    Missing,
-    transaction
-)
+from parkit.storage.context import transaction_context
+from parkit.storage.entitymeta import EntityMeta
+from parkit.storage.missing import Missing
 from parkit.utility import (
     compile_function,
     getenv,
-    polling_loop,
-    resolve_path
+    polling_loop
 )
 
 logger = logging.getLogger(__name__)
@@ -32,23 +28,21 @@ def mkgetnowait(fifo: bool = True) -> Tuple[str, Callable[..., Any]]:
     code = """
 def method(self):
     try:
-        txn = cursor = None
-        cursor = thread.local.cursors[id(self._Entity__userdb[0])]
-        if not cursor:
-            txn = self._Entity__env.begin(write = True)
-            cursor = txn.cursor(db = self._Entity__userdb[0])
+        txn, cursors, _, implicit = \
+        thread.local.context.get(self._Entity__env, write = True)
+        cursor = cursors[self._Entity__userdb[0]]
         if {0}:
             key = cursor.key()
             data = cursor.pop(key)
             meta = txn.pop(key, db = self._Entity__userdb[1]) if self.get_metadata else None
         else:
             data = meta = None
-        if txn:
+        if implicit:
             txn.commit()
     except BaseException as exc:
-        self._Entity__abort(exc, txn)
+        self._Entity__abort(exc, txn, implicit)
     finally:
-        if txn and cursor:
+        if implicit and cursor:
             cursor.close()
     if data is None:
         raise queue.Empty()
@@ -66,7 +60,7 @@ def method(self):
 
 class _Queue(Sized):
 
-    _maxsize_cached = math.inf
+    __maxsize_cached = math.inf
 
     get_metadata: Optional[Callable[..., Any]] = None
 
@@ -82,35 +76,28 @@ class _Queue(Sized):
         /, *,
         create: bool = True,
         bind: bool = True,
-        type_check: bool = True,
         metadata: Optional[Dict[str, Any]] = None,
         maxsize: int = 0,
-        storage_path: Optional[str] = None
+        site: Optional[str] = None,
+        on_init: Optional[Callable[[bool], None]] = None
     ):
-        if path is not None:
-            name, namespace = resolve_path(path)
-        else:
-            name = namespace = None
-        Entity.__init__(
-            self, name,
-            properties = [{'integerkey': True}, {'integerkey': True}],
-            namespace = namespace,
-            create = create, bind = bind,
-            type_check = type_check,
-            metadata = metadata,
-            storage_path = storage_path
+        super().__init__(
+            path,
+            db_properties = [{'integerkey': True}, {'integerkey': True}],
+            create = create, bind = bind, on_init = on_init,
+            metadata = metadata, site = site
         )
-        if '_maxsize' not in self.attributes():
-            self._maxsize = maxsize if maxsize > 0 else math.inf
-        self._maxsize_cached = self._maxsize
+        if '__maxsize' not in self.attributes():
+            self.__maxsize = maxsize if maxsize > 0 else math.inf
+        self.__maxsize_cached = self.__maxsize
 
-    def __setstate__(self, from_wire: Tuple[str, str, str, str]):
+    def __setstate__(self, from_wire: Tuple[str, str, str]):
         super().__setstate__(from_wire)
-        self._maxsize_cached = self._maxsize
+        self.__maxsize_cached = self.__maxsize
 
     @property
     def maxsize(self) -> Optional[int]:
-        return int(self._maxsize_cached) if self._maxsize_cached != math.inf else None
+        return int(self.__maxsize_cached) if self.__maxsize_cached != math.inf else None
 
     def put(
         self,
@@ -120,17 +107,16 @@ class _Queue(Sized):
         timeout: Optional[float] = None,
         polling_interval: Optional[float] = None
     ):
-        default_polling_interval = getenv(constants.ADAPTER_POLLING_INTERVAL_ENVNAME, float)
-        if self._maxsize_cached != math.inf and block and (timeout is None or timeout > 0):
+        if self.__maxsize_cached != math.inf and block and (timeout is None or timeout > 0):
             try:
                 for _ in polling_loop(
                     polling_interval if polling_interval is not None else \
-                    default_polling_interval,
+                    getenv(constants.ADAPTER_POLLING_INTERVAL_ENVNAME, float),
                     timeout = timeout
                 ):
-                    if self.__len__() < self._maxsize_cached:
-                        with transaction(self.namespace):
-                            if self.__len__() < self._maxsize_cached:
+                    if self.__len__() < self.__maxsize_cached:
+                        with transaction_context(self._Entity__env, write = True):
+                            if self.__len__() < self.__maxsize_cached:
                                 self.put_nowait(item)
                                 break
             except TimeoutError as exc:
@@ -144,20 +130,14 @@ class _Queue(Sized):
         /
     ):
         meta = pickle.dumps(self.get_metadata(item)) if self.get_metadata else None
-        item = self.encode_value(item) if self.encode_value else item
+        item_bytes = self.encode_value(item) if self.encode_value else item
         try:
-            implicit = False
-            cursor = None
-            txn = thread.local.transaction
-            if not txn:
-                implicit = True
-                txn = self._Entity__env.begin(write = True)
-                cursor = txn.cursor(db = self._Entity__userdb[0])
-            else:
-                cursor = thread.local.cursors[id(self._Entity__userdb[0])]
+            txn, cursors, changed, implicit = \
+            thread.local.context.get(self._Entity__env, write = True)
+            cursor = cursors[self._Entity__userdb[0]]
 
-            if self._maxsize_cached != math.inf and \
-            txn.stat(self._Entity__userdb[0])['entries'] >= self._maxsize_cached:
+            if self.__maxsize_cached != math.inf and \
+            txn.stat(self._Entity__userdb[0])['entries'] >= self.__maxsize_cached:
                 raise queue.Full()
 
             if not cursor.last():
@@ -165,15 +145,18 @@ class _Queue(Sized):
             else:
                 key = struct.pack('@N', struct.unpack('@N', cursor.key())[0] + 1)
 
-            assert cursor.put(key = key, value = item, append = True)
+            assert cursor.put(key = key, value = item_bytes, append = True)
             if self.get_metadata:
                 assert txn.put(
                     key = key, value = meta, append = True, db = self._Entity__userdb[1]
                 )
             if implicit:
+                self._Entity__increment_version(cursors)
                 txn.commit()
+            else:
+                changed.add(self)
         except BaseException as exc:
-            self._Entity__abort(exc, txn if implicit else None)
+            self._Entity__abort(exc, txn, implicit)
         finally:
             if implicit and cursor:
                 cursor.close()
@@ -210,7 +193,7 @@ class _Queue(Sized):
         return self.__len__() == 0
 
     def full(self) -> bool:
-        return self.__len__() == self._maxsize_cached
+        return self.__len__() == self.__maxsize_cached
 
 class QueueMeta(EntityMeta):
 

@@ -86,6 +86,8 @@ class ModuleObserver():
         if content_digest is None:
             raise ModuleNotFoundError(module_name)
         return 'module-{0}'.format(create_string_digest(
-            filepath, module_name, function_name,
-            content_digest
+            ''.join([
+                filepath, module_name, function_name,
+                content_digest
+            ])
         ))

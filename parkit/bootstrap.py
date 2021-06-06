@@ -1,3 +1,5 @@
+import os
+import tempfile
 import uuid
 
 from typing import cast
@@ -17,6 +19,33 @@ setenv(
     str(uuid.uuid4())
 )
 
+if not envexists(constants.GLOBAL_FILE_LOCK_PATH_ENVNAME):
+    path = os.path.abspath(os.path.join(
+        tempfile.gettempdir(),
+        constants.GLOBAL_FILE_LOCK_FILENAME
+    ))
+    setenv(constants.GLOBAL_FILE_LOCK_PATH_ENVNAME, path)
+
+if not envexists(constants.GLOBAL_SITE_STORAGE_PATH_ENVNAME):
+    path = os.path.abspath(os.path.join(
+        tempfile.gettempdir(),
+        constants.PARKIT_TEMP_SITE_DIRNAME
+    ))
+    setenv(constants.GLOBAL_SITE_STORAGE_PATH_ENVNAME, path)
+else:
+    path = os.path.abspath(getenv(constants.GLOBAL_SITE_STORAGE_PATH_ENVNAME, str))
+    setenv(constants.GLOBAL_SITE_STORAGE_PATH_ENVNAME, path)
+
+if envexists(constants.CLUSTER_STORAGE_PATH_ENVNAME):
+    if not envexists(constants.NODE_UID_ENVNAME) \
+    or not envexists(constants.CLUSTER_UID_ENVNAME):
+        setenv(constants.CLUSTER_STORAGE_PATH_ENVNAME, None)
+    else:
+        setenv(
+            constants.CLUSTER_STORAGE_PATH_ENVNAME,
+            os.path.abspath(getenv(constants.CLUSTER_STORAGE_PATH_ENVNAME, str))
+        )
+
 for name, default in get_lmdb_profiles()['default'].copy().items():
     if envexists(name):
         if checkenv(name, type(default)):
@@ -25,40 +54,16 @@ for name, default in get_lmdb_profiles()['default'].copy().items():
 if not envexists(constants.POOL_SIZE_ENVNAME):
     setenv(constants.POOL_SIZE_ENVNAME, str(constants.DEFAULT_POOL_SIZE))
 
-if not envexists(constants.PYTHON_NAMES_ENVNAME):
-    setenv(
-        constants.PYTHON_NAMES_ENVNAME,
-        str(constants.DEFAULT_PYTHON_NAMES)
-    )
-
 if not envexists(constants.PROCESS_TERMINATION_TIMEOUT_ENVNAME):
     setenv(
         constants.PROCESS_TERMINATION_TIMEOUT_ENVNAME,
         str(constants.DEFAULT_PROCESS_TERMINATION_TIMEOUT)
     )
 
-if not envexists(constants.POOL_AUTOSTART_ENVNAME):
-    setenv(
-        constants.POOL_AUTOSTART_ENVNAME,
-        str(constants.DEFAULT_POOL_AUTOSTART)
-    )
-
 if not envexists(constants.MONITOR_POLLING_INTERVAL_ENVNAME):
     setenv(
         constants.MONITOR_POLLING_INTERVAL_ENVNAME,
         str(constants.DEFAULT_MONITOR_POLLING_INTERVAL)
-    )
-
-if not envexists(constants.GARBAGE_COLLECTOR_POLLING_INTERVAL_ENVNAME):
-    setenv(
-        constants.GARBAGE_COLLECTOR_POLLING_INTERVAL_ENVNAME,
-        str(constants.DEFAULT_GARBAGE_COLLECTOR_POLLING_INTERVAL)
-    )
-
-if not envexists(constants.MONITOR_RESTARTER_POLLING_INTERVAL_ENVNAME):
-    setenv(
-        constants.MONITOR_RESTARTER_POLLING_INTERVAL_ENVNAME,
-        str(constants.DEFAULT_MONITOR_RESTARTER_POLLING_INTERVAL)
     )
 
 if not envexists(constants.WORKER_POLLING_INTERVAL_ENVNAME):

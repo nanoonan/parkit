@@ -1,4 +1,3 @@
-# pylint: disable = c-extension-no-member
 import ast
 import distutils.util
 import functools
@@ -11,12 +10,11 @@ import os
 import sys
 import time
 import types
+import uuid
 
 from typing import (
-    Any, Callable, Dict, Iterator, List, Optional, Tuple
+    Any, Callable, Dict, Iterator, List, Optional, Tuple, Union
 )
-
-import psutil
 
 import parkit.constants as constants
 
@@ -62,66 +60,79 @@ def get_qualified_class_name(obj: Any) -> str:
 
 def getenv(name: str, vartype: type = str) -> Any:
     value = os.getenv(name)
-    if value is None:
-        raise ValueError('Environment variable {0} not found in environment'.format(name))
+    assert value is not None
     if vartype is str:
         return value
-    if vartype is bool:
-        return bool(distutils.util.strtobool(value))
     if vartype in [int, float]:
         return vartype(value)
+    if vartype is bool:
+        return bool(distutils.util.strtobool(value))
     raise TypeError()
 
 def checkenv(name: str, vartype: type) -> bool:
     if vartype is bool:
         if getenv(name, str).upper() != 'FALSE' and getenv(name, str).upper() != 'TRUE':
-            raise TypeError('Environment variable {0} has wrong type'.format(name))
+            raise TypeError()
     else:
         try:
             type(getenv(name, str))
         except Exception as exc:
-            raise TypeError('Environment variable has {0} wrong type'.format(name)) from exc
+            raise TypeError() from exc
     return True
 
 def envexists(name: str) -> bool:
-    return os.getenv(name) is not None
+    return name in os.environ
 
 def setenv(name: str, value: Optional[Any]):
-    if value is None and name in os.environ:
-        del os.environ[name]
-    elif value is not None:
-        os.environ[name] = str(value)
+    if value is None:
+        if name in os.environ:
+            del os.environ[name]
+        return
+    os.environ[name] = str(value)
 
-@functools.lru_cache(None)
-def resolve_path(path: str) -> Tuple[Optional[str], Optional[str]]:
+def resolve_name(name: str) -> str:
+    if not name:
+        raise ValueError()
+    if name.isascii() and \
+    name.replace('.', '').replace('_', '').replace('-', '').isalnum():
+        return name
+    raise ValueError()
+
+def resolve_path(path: Optional[str]) -> Tuple[str, str]:
+    if not path:
+        return (
+            constants.DEFAULT_NAMESPACE,
+            ''.join(['__', str(uuid.uuid4()), '__'])
+        )
     segments = [segment for segment in path.split('/') if len(segment)]
     if segments and \
     all(
         segment.isascii() and \
-        segment.replace('.', '').replace('_', '').replace('-', '').isalnum()
-        for segment in segments
+        segment.replace('_', '').replace('-', '').isalnum()
+        for segment in segments[:-1]
     ):
-        return \
-        (segments[0], None) if len(segments) == 1 else \
-        (segments[-1], '/'.join(segments[0:-1]))
-    raise ValueError('Path does not follow naming rules')
+        if segments[-1].isascii() and \
+        segments[-1].replace('.', '').replace('_', '').replace('-', '').isalnum():
+            return \
+            (constants.DEFAULT_NAMESPACE, segments[0]) if len(segments) == 1 else \
+            ('/'.join(segments[0:-1]), segments[-1])
+    raise ValueError()
 
-@functools.lru_cache(None)
-def resolve_namespace(namespace: Optional[str]) -> Optional[str]:
+def resolve_namespace(namespace: Optional[str]) -> str:
     if not namespace:
-        return namespace
+        return constants.DEFAULT_NAMESPACE
     segments = [segment for segment in namespace.split('/') if len(segment)]
     if all(
         segment.isascii() and segment.replace('_', '').replace('-', '').isalnum()
         for segment in segments
     ):
-        return None if not segments else '/'.join(segments)
-    raise ValueError('Namespace does not follow naming rules')
+        return '/'.join(segments)
+    raise ValueError()
 
-def create_string_digest(*segments: Any) -> str:
-    return hashlib.sha1(
-        ''.join([str(segment) for segment in segments]).encode('utf-8')
-    ).hexdigest()
+def create_string_digest(obj: Union[str, bytes]) -> str:
+    if isinstance(obj, str):
+        obj = obj.encode()
+    return hashlib.sha1(obj).hexdigest()
 
 def polling_loop(
     interval: float,
@@ -165,31 +176,3 @@ def get_calling_modules() -> List[str]:
             modules.append(name)
         frame = frame.f_back
     return modules
-
-def scan_python_processes(python_names: Optional[List[str]] = None) \
--> List[Tuple[int, str, str, str]]:
-    pids = []
-    results = []
-    if python_names is None:
-        python_names = [
-            name for name in \
-            [name.strip() for name in getenv(constants.PYTHON_NAMES_ENVNAME, str).split(',')]
-        if name]
-    for proc in psutil.process_iter(['name', 'pid']):
-        if proc.info['name'] in python_names:
-            pids.append(proc.info['pid'])
-    for pid in pids:
-        try:
-            proc = psutil.Process(pid)
-            env = proc.environ()
-            if constants.PROCESS_UUID_ENVNAME in env:
-                node_uid = env[constants.NODE_UID_ENVNAME] if \
-                constants.NODE_UID_ENVNAME in env else None
-                cluster_uid = env[constants.CLUSTER_UID_ENVNAME] if \
-                constants.CLUSTER_UID_ENVNAME in env else None
-                results.append(
-                    (pid, proc.environ()[constants.PROCESS_UUID_ENVNAME], node_uid, cluster_uid)
-                )
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
-            pass
-    return results

@@ -1,8 +1,10 @@
 0.0.9
-- redo docs (example based)
-- review process code
+- smoke tests
+- review pylint disables (storage)
+- remove polling from queue
+- tasks iterator
+- disable scope entry across sites (query if in write tx)
+- set namespace size not working
 
 0.0.10
-- get_metadata for Dict
 - add Stream class
-- add extend to Array

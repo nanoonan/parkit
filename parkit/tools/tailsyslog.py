@@ -1,22 +1,22 @@
 from typing import cast
 
-from parkit import (
-    Array,
-    snapshot,
-    SysLog,
-    wait_until
-)
+import parkit.constants as constants
 
-log: Array = cast(Array, SysLog())
+from parkit.functions import wait_until
+from parkit.storage.transaction import snapshot
 
-length = len(log)
+from parkit.syslog import syslog
+from parkit.utility import getenv
+
+length = len(syslog)
 
 print('welcome to syslog')
 print('current log size:', length)
+print('installation path:', getenv(constants.GLOBAL_SITE_STORAGE_PATH_ENVNAME, str))
 
 while True:
-    wait_until(lambda: len(log) > length)
-    with snapshot(log.namespace):
-        for record in log[length:]:
+    wait_until(lambda: len(syslog) > length)
+    with snapshot(syslog.namespace):
+        for record in syslog[length:]:
             print(record)
-        length = len(log)
+        length = len(syslog)

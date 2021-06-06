@@ -1,19 +1,17 @@
 import logging
+import typing
+import uuid
 
 from typing import (
-    Any, Callable, Optional, Union
+    Any, Callable, Iterator, Optional, Tuple, Union
 )
 
 import parkit.constants as constants
 
+from parkit.adapters.dict import Dict
 from parkit.adapters.function import Function
-from parkit.adapters.scheduler import (
-    Scheduler
-)
-from parkit.storage import (
-    snapshot,
-    transaction
-)
+from parkit.adapters.scheduler import Scheduler
+from parkit.storage.context import transaction_context
 
 logger = logging.getLogger(__name__)
 
@@ -21,109 +19,129 @@ class Task(Function):
 
     def __init__(
         self,
-        path: Optional[str] = None,
+        path: str,
         /, *,
         target: Optional[Callable[..., Any]] = None,
-        scheduler: Optional[Scheduler] = None,
         create: bool = False,
         bind: bool = True,
-        storage_path: Optional[str] = None,
-        default_sync: bool = False
+        site: Optional[str] = None,
+        default_sync: Optional[bool] = None,
+        metadata: Optional[typing.Dict[str, Any]] = None
     ):
         super().__init__(
-            path, target = target, create = create, bind = bind,
-            storage_path = storage_path
+            path, target = target,
+            create = create, bind = bind,
+            site = site, metadata = metadata
         )
-        if '_default_sync' not in self.attributes():
-            self._default_sync = default_sync
-        if '_schedule' not in self.attributes():
-            self._schedule = False
-        if '_scheduler' not in self.attributes():
-            self._scheduler = scheduler
-        elif scheduler:
-            self.scheduler = scheduler
+        if '_Task__default_sync' not in self.attributes():
+            self.__default_sync = default_sync if default_sync is not None else False
+        else:
+            if default_sync is not None:
+                self.__default_sync = default_sync
+        if metadata is not None:
+            self.metadata = metadata
+        if '_Task__schedulers' not in self.attributes():
+            self.__schedulers = Dict('/'.join([
+                constants.TASK_NAMESPACE,
+                '__{0}__'.format(str(uuid.uuid4()))
+            ]))
 
     @property
-    def schedule(self) -> bool:
-        return self._schedule
+    def schedulers(self) -> Iterator[Scheduler]:
+        for key in self.__schedulers.keys():
+            yield self.__schedulers[key][0]
 
-    @schedule.setter
-    def schedule(self, value: bool):
-        assert isinstance(value, bool)
-        self._schedule = value
+    def get_args(self, scheduler: Scheduler) \
+    -> Optional[Tuple[Tuple[Any, ...], typing.Dict[str, Any]]]:
+        try:
+            _, args, kwargs = self.__schedulers[scheduler.uuid]
+            return (args, kwargs)
+        except KeyError:
+            return None
 
-    @property
-    def scheduler(self) -> Optional[Scheduler]:
-        return self._scheduler
+    def schedule(
+        self,
+        scheduler: Scheduler,
+        *args,
+        **kwargs
+    ) -> bool:
+        with transaction_context(self._Entity__env, write = True):
+            if scheduler not in self.__schedulers:
+                self.__schedulers[scheduler.uuid] = (scheduler, args, kwargs)
+                return True
+            return False
 
-    @scheduler.setter
-    def scheduler(self, value: Optional[Scheduler]):
-        assert value is None or isinstance(value, Scheduler)
-        with transaction(constants.TASK_NAMESPACE):
-            if self._scheduler:
-                self._scheduler.drop()
-            self._scheduler = value
-
-    @property
-    def scheduled(self) -> bool:
-        with snapshot(constants.TASK_NAMESPACE):
-            has_scheduler = self._scheduler is not None
-            return self.schedule and has_scheduler
+    def unschedule(self, scheduler: Scheduler):
+        try:
+            del self.__schedulers[scheduler.uuid]
+        except KeyError:
+            pass
 
     def drop(self):
-        with transaction(constants.TASK_NAMESPACE):
-            if self._scheduler:
-                self.scheduler.drop()
+        with transaction_context(self._Entity__env, write = True):
+            self.__schedulers.drop()
             super().drop()
 
     def __call__(
         self,
-        sync: Optional[bool] = None,
         *args,
+        sync: Optional[bool] = None,
         **kwargs
     ) -> Any:
         if sync is None:
-            sync = self._default_sync
+            sync = self.__default_sync
         if not sync:
             return self.submit(args = args, kwargs = kwargs)
         return self.invoke(args = args, kwargs = kwargs)
 
 def task(
     *args,
-    default_sync: bool = False,
     name: Optional[str] = None,
-    scheduler: Optional[Scheduler] = None,
+    qualify_name: bool = False,
+    metadata: Optional[typing.Dict[str, Any]] = None,
+    default_sync: Optional[bool] = None
 ) -> Union[Task, Callable[[Callable[..., Any]], Task]]:
 
-    def setup(target):
-        if name is None:
-            name = '.'.join([target.__module__, target.__name__])
+    def setup(name, target):
+        if not name:
+            if qualify_name:
+                name = '.'.join([target.__module__, target.__name__])
+            else:
+                name = target.__name__
         return Task(
-            name, target = target, scheduler = scheduler,
-            create = True, bind = True, default_sync = default_sync
+            '/'.join([constants.TASK_NAMESPACE, name]), target = target,
+            create = True, bind = True,
+            default_sync = default_sync, metadata = metadata
         )
 
     target = None
 
     if args:
         target = args[0]
-        return setup(target)
+        return setup(name, target)
 
     def decorator(target):
-        return setup(target)
+        return setup(name, target)
 
     return decorator
 
 def bind_task(name: str):
-    return Task(name)
+    return Task('/'.join([constants.TASK_NAMESPACE, name]))
 
 def create_task(
     target: Callable[..., Any],
     /, *,
     name: Optional[str] = None,
-    scheduler: Optional[Scheduler] = None
+    qualify_name: bool = False,
+    metadata: Optional[typing.Dict[str, Any]] = None
 ) -> Task:
+    if not name:
+        if qualify_name:
+            name = '.'.join([target.__module__, target.__name__])
+        else:
+            name = target.__name__
     return Task(
-        name, target = target, create = True, bind = False,
-        scheduler = scheduler
+        '/'.join([constants.TASK_NAMESPACE, name]),
+        target = target, create = True, bind = False,
+        metadata = metadata
     )

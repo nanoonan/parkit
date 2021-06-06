@@ -3,3 +3,4 @@ disable = missing-module-docstring, missing-class-docstring, missing-function-do
 max-args = 10
 max-branches = 20
 max-nested-blocks = 10
+max-locals = 20

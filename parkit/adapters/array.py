@@ -1,28 +1,21 @@
-# pylint: disable = broad-except, no-value-for-parameter, non-parent-init-called, super-init-not-called, unused-import
+# pylint: disable = not-callable, broad-except, unused-import
 import logging
 import pickle
 import struct
 
 from typing import (
-    Any, ByteString, Callable, cast, Dict, Iterator, Optional, Tuple, Union
+    Any, ByteString, Callable, cast, Dict, Iterable,
+    Iterator, Optional, Tuple, Union
 )
 
-import parkit.constants as constants
 import parkit.storage.threadlocal as thread
 
 from parkit.adapters.sized import Sized
-from parkit.storage import (
-    Entity,
-    EntityMeta,
-    context,
-    Missing
-)
-from parkit.utility import (
-    compile_function,
-    getenv,
-    polling_loop,
-    resolve_path
-)
+from parkit.storage.context import transaction_context
+from parkit.storage.entitymeta import EntityMeta
+from parkit.storage.missing import Missing
+
+from parkit.utility import compile_function
 
 logger = logging.getLogger(__name__)
 
@@ -60,14 +53,9 @@ def method(
     result: Tuple[bool, Optional[int]] = (False, None)
     if start <= end:
         try:
-            implicit = False
-            txn = thread.local.transaction
-            if not txn:
-                implicit = True
-                txn = self._Entity__env.begin()
-                cursor = txn.cursor(db = self._Entity__userdb[0])
-            else:
-                cursor = thread.local.cursors[id(self._Entity__userdb[0])]
+            txn, cursors, _, implicit = \
+            thread.local.context.get(self._Entity__env, write = False)
+            cursor = cursors[self._Entity__userdb[0]]
             if cursor.set_range(struct.pack('@N', start)):
                 while True:
                     key = struct.unpack('@N', cursor.key())[0]
@@ -75,7 +63,7 @@ def method(
                         curval = (
                             self.decode_value(
                                 cursor.value(),
-                                pickle.loads(txn.get(key = key, db = self._Entity__userdb[1]))
+                                pickle.loads(txn.get(key = cursor.key(), db = self._Entity__userdb[1]))
                             ) if self.get_metadata else self.decode_value(cursor.value())
                         ) if self.decode_value else cursor.value()
                         if value == curval:
@@ -88,7 +76,7 @@ def method(
             if implicit:
                 txn.commit()
         except BaseException as exc:
-            self._Entity__abort(exc, txn)
+            self._Entity__abort(exc, txn, implicit)
         finally:
             if implicit and cursor:
                 cursor.close()
@@ -113,12 +101,8 @@ def method(
 ) -> Iterator[Any]:
     start = 0 if 'start' not in kwargs or kwargs['start'] is None else kwargs['start']
     stop = 2**64 - 1 if 'stop' not in kwargs or kwargs['stop'] is None else kwargs['stop']
-    with context(
-        self._Entity__env, write = False,
-        inherit = True, buffers = True
-    ):
-        txn = thread.local.transaction
-        cursor = thread.local.cursors[id(self._Entity__userdb[0])]
+    with transaction_context(self._Entity__env, write = False) as (txn, cursors, _):
+        cursor = cursors[self._Entity__userdb[0]]
         size = txn.stat(self._Entity__userdb[0])['entries']
         if start < 0:
             start = size - abs(start)
@@ -132,7 +116,7 @@ def method(
             key = struct.unpack('@N', cursor.key())[0]
             {1}
             yield (
-                self.decode_value(cursor.value(), pickle.loads(txn.get(key = key, db = self._Entity__userdb[1]))) \
+                self.decode_value(cursor.value(), pickle.loads(txn.get(key = cursor.key(), db = self._Entity__userdb[1]))) \
                 if self.get_metadata else self.decode_value(cursor.value())
             ) if self.decode_value else cursor.value()
             {2}
@@ -201,19 +185,15 @@ class Array(Sized, metaclass = ArrayMeta):
         path: Optional[str] = None,
         /, *,
         create: bool = True,
-        type_check: bool = True,
         bind: bool = True,
         metadata: Optional[Dict[str, Any]] = None,
-        storage_path: Optional[str] = None
+        site: Optional[str] = None,
+        on_init: Optional[Callable[[bool], None]] = None
     ):
-        if path is not None:
-            name, namespace = resolve_path(path)
-        else:
-            name = namespace = None
-        Entity.__init__(
-            self, name, properties = [{'integerkey': True}, {'integerkey': True}],
-            namespace = namespace, create = create, bind = bind,
-            type_check = type_check, metadata = metadata, storage_path = storage_path
+        super().__init__(
+            path, db_properties = [{'integerkey': True}, {'integerkey': True}],
+            create = create, bind = bind, on_init = on_init,
+            metadata = metadata, site = site
         )
 
     def __getitem__(
@@ -224,15 +204,10 @@ class Array(Sized, metaclass = ArrayMeta):
         if isinstance(key, slice):
             return ReversibleGetSlice(self, key.start, key.stop)
         try:
-            implicit = False
-            cursor = None
-            txn = thread.local.transaction
-            if not txn:
-                implicit = True
-                txn = self._Entity__env.begin()
-                cursor = txn.cursor(db = self._Entity__userdb[0])
-            else:
-                cursor = thread.local.cursors[id(self._Entity__userdb[0])]
+            txn, cursors, _, implicit = \
+            thread.local.context.get(self._Entity__env, write = False)
+            cursor = cursors[self._Entity__userdb[0]]
+
             if key < 0:
                 key = txn.stat(self._Entity__userdb[0])['entries'] + key
 
@@ -247,7 +222,7 @@ class Array(Sized, metaclass = ArrayMeta):
             if implicit:
                 txn.commit()
         except BaseException as exc:
-            self._Entity__abort(exc, txn if implicit else None)
+            self._Entity__abort(exc, txn, implicit)
         finally:
             if implicit and cursor:
                 cursor.close()
@@ -256,6 +231,13 @@ class Array(Sized, metaclass = ArrayMeta):
         return (self.decode_value(data, meta) if self.get_metadata else self.decode_value(data)) \
         if self.decode_value else data
 
+    def count(self, value: Any) -> int:
+        count = 0
+        for stored in self[:]:
+            if stored == value:
+                count += 1
+        return count
+
     def __setitem__(
         self,
         key: int,
@@ -263,31 +245,28 @@ class Array(Sized, metaclass = ArrayMeta):
         /
     ):
         meta = pickle.dumps(self.get_metadata(value)) if self.get_metadata else None
-        value = self.encode_value(value) if self.encode_value else value
+        value_bytes = self.encode_value(value) if self.encode_value else value
         try:
-            implicit = False
-            cursor = None
-            txn = thread.local.transaction
-            if not txn:
-                implicit = True
-                txn = self._Entity__env.begin(write = True)
-                cursor = txn.cursor(db = self._Entity__userdb[0])
-            else:
-                cursor = thread.local.cursors[id(self._Entity__userdb[0])]
+            txn, cursors, changed, implicit = \
+            thread.local.context.get(self._Entity__env, write = True)
+            cursor = cursors[self._Entity__userdb[0]]
 
             key_bytes = struct.pack('@N', key)
 
-            assert cursor.put(key = key_bytes, value = value, append = False)
+            assert cursor.put(key = key_bytes, value = value_bytes, append = False)
             if self.get_metadata:
                 assert txn.put(
-                    key = key_bytes, value = meta, append = True,
+                    key = key_bytes, value = meta, append = False,
                     db = self._Entity__userdb[1]
                 )
 
             if implicit:
+                self._Entity__increment_version(cursors)
                 txn.commit()
+            else:
+                changed.add(self)
         except BaseException as exc:
-            self._Entity__abort(exc, txn if implicit else None)
+            self._Entity__abort(exc, txn, implicit)
         finally:
             if implicit and cursor:
                 cursor.close()
@@ -298,36 +277,73 @@ class Array(Sized, metaclass = ArrayMeta):
         /
     ):
         meta = pickle.dumps(self.get_metadata(item)) if self.get_metadata else None
-        item = self.encode_value(item) if self.encode_value else item
+        item_bytes = self.encode_value(item) if self.encode_value else item
         try:
-            implicit = False
-            cursor = None
-            txn = thread.local.transaction
-            if not txn:
-                implicit = True
-                txn = self._Entity__env.begin(write = True)
-                cursor = txn.cursor(db = self._Entity__userdb[0])
-            else:
-                cursor = thread.local.cursors[id(self._Entity__userdb[0])]
+            txn, cursors, changed, implicit = \
+            thread.local.context.get(self._Entity__env, write = True)
+            cursor = cursors[self._Entity__userdb[0]]
             if not cursor.last():
-                key = struct.pack('@N', 0)
+                key_bytes = struct.pack('@N', 0)
             else:
-                key = struct.pack('@N', struct.unpack('@N', cursor.key())[0] + 1)
-            assert cursor.put(key = key, value = item, append = True)
+                key_bytes = struct.pack('@N', struct.unpack('@N', cursor.key())[0] + 1)
+            assert cursor.put(key = key_bytes, value = item_bytes, append = True)
             if self.get_metadata:
                 assert txn.put(
-                    key = key, value = meta, append = True, db = self._Entity__userdb[1]
+                    key = key_bytes, value = meta, append = True, db = self._Entity__userdb[1]
                 )
             if implicit:
+                self._Entity__increment_version(cursors)
                 txn.commit()
+            else:
+                changed.add(self)
         except BaseException as exc:
-            self._Entity__abort(exc, txn)
+            self._Entity__abort(exc, txn, implicit)
+        finally:
+            if implicit and cursor:
+                cursor.close()
+
+    def extend(
+        self,
+        items: Iterable[Any],
+        /
+    ):
+        packed = []
+        for item in items:
+            meta = pickle.dumps(self.get_metadata(item)) if self.get_metadata else None
+            item_bytes = self.encode_value(item) if self.encode_value else item
+            packed.append((item_bytes, meta))
+        try:
+            txn, cursors, changed, implicit = \
+            thread.local.context.get(self._Entity__env, write = True)
+            cursor = cursors[self._Entity__userdb[0]]
+
+            if not cursor.last():
+                key = 0
+            else:
+                key = struct.unpack('@N', cursor.key())[0] + 1
+
+            for item, meta in packed:
+                key_bytes = struct.pack('@N', key)
+                assert cursor.put(key = key_bytes, value = item, append = True)
+                if meta is not None:
+                    assert txn.put(
+                        key = key_bytes, value = meta, append = True, db = self._Entity__userdb[1]
+                    )
+                key += 1
+
+            if implicit:
+                self._Entity__increment_version(cursors)
+                txn.commit()
+            else:
+                changed.add(self)
+        except BaseException as exc:
+            self._Entity__abort(exc, txn, implicit)
         finally:
             if implicit and cursor:
                 cursor.close()
 
     def __bool__(self) -> bool:
-        return self.count() > 0
+        return len(self) > 0
 
     __contains__: Callable[..., bool] = Missing()
 
@@ -336,5 +352,3 @@ class Array(Sized, metaclass = ArrayMeta):
     __reversed__: Callable[..., Iterator[Any]] = Missing()
 
     __iter__: Callable[..., Iterator[Any]] = Missing()
-
-    count = Sized.__len__

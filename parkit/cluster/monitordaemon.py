@@ -10,21 +10,15 @@ import psutil
 
 import parkit.constants as constants
 
-from parkit.adapters import (
-    Dict,
-    Queue
-)
+from parkit.adapters.dict import Dict
+from parkit.adapters.queue import Queue
 from parkit.cluster.manage import (
     create_pid_filepath,
     launch_node,
     scan_nodes,
     terminate_node
 )
-from parkit.storage import (
-    get_storage_path,
-    transaction
-)
-from parkit.threads import garbage_collector
+from parkit.storage.transaction import transaction
 from parkit.utility import (
     create_string_digest,
     getenv,
@@ -59,13 +53,19 @@ if __name__ == '__main__':
                 pass
 
         if platform.system() == 'Windows':
-            os.environ['__MONITOR_DAEMON__'] = 'True'
+            os.environ['__PARKIT_DAEMON__'] = 'True'
             if '__INVOKE_DAEMON__' in os.environ:
                 del os.environ['__INVOKE_DAEMON__']
 
-        assert cluster_uid == create_string_digest(get_storage_path())
+        # storage_path = get_storage_path()
+        # assert storage_path is not None
+        # assert cluster_uid == create_string_digest(storage_path)
+        storage_path = None
 
         pool_state = Dict(constants.POOL_STATE_DICT_PATH)
+
+        if 'pool_size' not in pool_state:
+            pool_state['pool_size'] = getenv(constants.POOL_SIZE_ENVNAME, int)
 
         def acquire():
             with transaction(pool_state.namespace):
@@ -95,13 +95,11 @@ if __name__ == '__main__':
         if not acquire():
             logger.info('monitor failed to acquire...exiting (%s)', node_uid)
             assert node_uid is not None
-            terminate_node(node_uid, cluster_uid)
+            terminate_node(node_uid, storage_path)
             while True:
                 time.sleep(1)
 
         logging.info('monitor started (%s)', node_uid)
-
-        garbage_collector.start()
 
         polling_interval = getenv(constants.MONITOR_POLLING_INTERVAL_ENVNAME, float)
 
@@ -112,7 +110,7 @@ if __name__ == '__main__':
         for _ in polling_loop(polling_interval):
             try:
                 pre_scan_termination_count = len(termination_queue)
-                running_nodes = scan_nodes(cluster_uid)
+                running_nodes = scan_nodes(storage_path)
                 post_scan_termination_count = len(termination_queue)
 
                 worker_nodes = [
@@ -130,7 +128,7 @@ if __name__ == '__main__':
                         launch_node(
                             'worker-{0}'.format(create_string_digest(str(uuid.uuid4()))),
                             'parkit.cluster.workerdaemon',
-                            cluster_uid
+                            storage_path
                         )
                 elif pre_scan_delta < 0:
                     for _ in range(abs(pre_scan_delta)):
@@ -140,7 +138,7 @@ if __name__ == '__main__':
                     launch_node(
                         'scheduler-{0}'.format(create_string_digest(str(uuid.uuid4()))),
                         'parkit.cluster.scheddaemon',
-                        cluster_uid
+                        storage_path
                     )
             except Exception:
                 logger.exception('(monitor) error on pid %i', os.getpid())

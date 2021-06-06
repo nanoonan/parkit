@@ -11,32 +11,29 @@ class Sized(Object):
 
     def clear(self):
         try:
-            implicit = False
-            txn = thread.local.transaction
-            if not txn:
-                implicit = True
-                txn = self._Entity__env.begin(write = True)
+            txn, cursors, changed, implicit = \
+            thread.local.context.get(self._Entity__env, write = True)
+            updated = False
             for database in self._Entity__userdb:
+                if txn.stat(database)['entries']:
+                    updated = True
                 txn.drop(database, delete = False)
             if implicit:
-                if self._Entity__vers:
-                    self.increment_version(use_transaction = txn)
+                if updated and self._Entity__vers:
+                    self._Entity__increment_version(cursors)
                 txn.commit()
-            elif self._Entity__vers:
-                thread.local.changed.add(self)
+            elif updated and self._Entity__vers:
+                changed.add(self)
         except BaseException as exc:
-            self._Entity__abort(exc, txn if implicit else None)
+            self._Entity__abort(exc, txn, implicit)
 
     def __len__(self) -> int:
         try:
-            implicit = False
-            txn = thread.local.transaction
-            if not txn:
-                implicit = True
-                txn = self._Entity__env.begin()
+            txn, _, _, implicit = \
+            thread.local.context.get(self._Entity__env, write = False)
             result = txn.stat(self._Entity__userdb[0])['entries']
             if implicit:
                 txn.commit()
         except BaseException as exc:
-            self._Entity__abort(exc, txn if implicit else None)
+            self._Entity__abort(exc, txn, implicit)
         return result

@@ -3,6 +3,11 @@ from parkit.adapters.array import Array
 
 from parkit.adapters.dict import Dict
 
+from parkit.adapters.scopetable import (
+    check_scope,
+    dump_scope_table
+)
+
 from parkit.adapters.object import Object
 
 from parkit.adapters.queue import (

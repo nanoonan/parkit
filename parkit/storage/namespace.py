@@ -2,15 +2,14 @@ import logging
 import os
 
 from typing import (
-    Any, cast, Dict, Iterator, Optional, Tuple
+    Any, Dict, Iterator, Optional, Tuple
 )
 
-import parkit.constants as constants
+import parkit.storage.threadlocal as thread
 
+from parkit.exceptions import SiteNotSpecifiedError
 from parkit.storage.environment import (
-    get_environment_threadsafe,
     get_namespace_size,
-    resolve_storage_path,
     set_namespace_size
 )
 from parkit.storage.objects import (
@@ -19,6 +18,11 @@ from parkit.storage.objects import (
     name_iter,
     object_iter
 )
+from parkit.storage.site import (
+    get_site_name,
+    get_site_uuid
+)
+from parkit.storage.threadlocal import StoragePath
 from parkit.typeddicts import Descriptor
 from parkit.utility import resolve_namespace
 
@@ -30,31 +34,42 @@ class Namespace():
         self,
         namespace: Optional[str] = None,
         /, *,
-        storage_path: Optional[str] = None
+        site: Optional[str] = None
     ):
-        self._path = cast(
-            str,
-            resolve_namespace(namespace) if namespace else constants.DEFAULT_NAMESPACE
-        )
-        self._storage_path = resolve_storage_path(storage_path)
-        get_environment_threadsafe(self._storage_path, self._path)
+        self._path = resolve_namespace(namespace)
+        if site:
+            self._site_uuid = get_site_uuid(site)
+        elif thread.local.storage_path:
+            self._site_uuid = thread.local.storage_path.site_uuid
+        else:
+            raise SiteNotSpecifiedError()
 
     @property
-    def storage_path(self) -> str:
-        return self._storage_path
+    def site(self) -> str:
+        return get_site_name(self._site_uuid)
+
+    @property
+    def site_uuid(self) -> str:
+        return self._site_uuid
 
     @property
     def path(self) -> str:
         return self._path
 
     @property
+    def storage_path(self) -> str:
+        return StoragePath(site_uuid = self._site_uuid).path
+
+    @property
     def maxsize(self) -> int:
-        return get_namespace_size(self._storage_path, self._path)
+        storage_path = StoragePath(site_uuid = self._site_uuid).path
+        return get_namespace_size(storage_path, self._path)
 
     @maxsize.setter
     def maxsize(self, value: int):
-        assert value > 0
-        set_namespace_size(value, self._storage_path, self._path)
+        assert value > self.maxsize
+        storage_path = StoragePath(site_uuid = self._site_uuid).path
+        set_namespace_size(value, storage_path, self._path)
 
     def __delitem__(
         self,
@@ -66,39 +81,69 @@ class Namespace():
         self,
         name: str
     ) -> Any:
-        obj = load_object(self._storage_path, self._path, name)
+        storage_path = StoragePath(site_uuid = self._site_uuid).path
+        obj = load_object(get_site_name(self._site_uuid), storage_path, self._path, name)
         if obj is not None:
             return obj
         raise KeyError()
 
-    def metadata(self) -> Iterator[Tuple[str, Dict[str, Any]]]:
-        for name, descriptor in descriptor_iter(self._storage_path, self._path):
-            yield (name, descriptor['custom'] if 'custom' in descriptor else {})
+    def metadata(self, /, *, include_hidden: bool = False) \
+    -> Iterator[Tuple[str, Dict[str, Any]]]:
+        storage_path = StoragePath(site_uuid = self._site_uuid).path
+        for name, descriptor in descriptor_iter(
+            storage_path, self._path, include_hidden = include_hidden
+        ):
+            yield (name, descriptor['metadata'])
 
-    def descriptors(self) -> Iterator[Tuple[str, Descriptor]]:
-        return descriptor_iter(self._storage_path, self._path)
+    def descriptors(self, /, *, include_hidden: bool = False) \
+    -> Iterator[Tuple[str, Descriptor]]:
+        storage_path = StoragePath(site_uuid = self._site_uuid).path
+        return descriptor_iter(
+            storage_path, self._path, include_hidden = include_hidden
+        )
 
-    def names(self) -> Iterator[str]:
-        return name_iter(self._storage_path, self._path)
+    def names(self, /, *, include_hidden: bool = False) -> Iterator[str]:
+        storage_path = StoragePath(site_uuid = self._site_uuid).path
+        return name_iter(storage_path, self._path, include_hidden = include_hidden)
 
-    def objects(self) -> Iterator[Any]:
-        return self.__iter__()
+    def objects(self, /, *, include_hidden: bool = False) -> Iterator[Any]:
+        storage_path = StoragePath(site_uuid = self._site_uuid).path
+        return object_iter(
+            get_site_name(self._site_uuid),
+            storage_path, self._path,
+            include_hidden = include_hidden
+        )
 
     def __iter__(self) -> Iterator[Any]:
-        return object_iter(self._storage_path, self._path)
+        storage_path = StoragePath(site_uuid = self._site_uuid).path
+        return object_iter(get_site_name(self._site_uuid), storage_path, self._path)
 
     def __len__(self) -> int:
         return len(list(self.names()))
 
-def namespaces(storage_path: Optional[str] = None) -> Iterator[Namespace]:
-    path = resolve_storage_path(storage_path)
-    for folder, _, _ in os.walk(path):
-        if folder != path:
+    def __contains__(self, obj) -> bool:
+        if isinstance(obj, str):
+            return obj in list(self.names())
+        return obj in list(self.__iter__())
+
+def namespaces(
+    site: Optional[str] = None,
+    include_hidden: bool = False
+) -> Iterator[Namespace]:
+    if site:
+        site_uuid = get_site_uuid(site)
+    elif thread.local.storage_path:
+        site_uuid = thread.local.storage_path.site_uuid
+    else:
+        raise SiteNotSpecifiedError()
+    storage_path = StoragePath(site_uuid = site_uuid).path
+    for folder, _, _ in os.walk(storage_path):
+        if folder != storage_path:
             top_level_namespace = \
-            folder[len(path):].split(os.path.sep)[1]
-            if not (
+            folder[len(storage_path):].split(os.path.sep)[1]
+            if include_hidden or not (
                 top_level_namespace.startswith('__') and top_level_namespace.endswith('__')
             ):
                 yield Namespace('/'.join(
-                    folder[len(path):].split(os.path.sep)[1:]
+                    folder[len(storage_path):].split(os.path.sep)[1:]
                 ))

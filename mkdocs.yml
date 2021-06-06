@@ -14,10 +14,8 @@ theme:
 
 nav:
     - Home: index.md
-    - Objects and Namespaces: object.md
-    - Advanced Usage: advanced.md
-    - Using Collections: collections.md
-    - Using Process: process.md
+    - Getting Started: gettingstarted.md
+    - Recipes: recipes.md
     - API Reference: api.md
 
 markdown_extensions:

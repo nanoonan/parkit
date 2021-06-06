@@ -1,4 +1,4 @@
-# pylint: disable = broad-except, no-value-for-parameter, non-parent-init-called, super-init-not-called, unused-import
+# pylint: disable = broad-except, not-callable, unused-import
 import collections.abc
 import logging
 import pickle
@@ -13,16 +13,10 @@ from typing import (
 import parkit.storage.threadlocal as thread
 
 from parkit.adapters.sized import Sized
-from parkit.storage import (
-    Entity,
-    EntityMeta,
-    context,
-    Missing
-)
-from parkit.utility import (
-    compile_function,
-    resolve_path
-)
+from parkit.storage.context import transaction_context
+from parkit.storage.entitymeta import EntityMeta
+from parkit.storage.missing import Missing
+from parkit.utility import compile_function
 
 logger = logging.getLogger(__name__)
 
@@ -34,31 +28,36 @@ def mkiter(
 ) -> Tuple[str, Callable[..., Iterator[Union[Any, Tuple[Any, Any]]]]]:
     code = """
 def method(self) -> Iterator[Union[Any, Tuple[Any, Any]], None, None]:
-    with context(
-        self._Entity__env, write = False,
-        inherit = True, buffers = True
-    ):
-        cursor = thread.local.cursors[id(self._Entity__userdb[0])]
-        if not cursor.first():
+    with transaction_context(self._Entity__env, write = False) as (_, cursors, _):
+        data_cursor = cursors[self._Entity__userdb[0]]
+        meta_cursor = cursors[self._Entity__userdb[1]] if self.get_metadata else None
+        if not data_cursor.first():
             return
+        if meta_cursor:
+            meta_cursor.first()
         while True:
             {0}
-            if not cursor.next():
+            if not data_cursor.next():
                 return
+            if meta_cursor:
+                meta_cursor.next()
 """
     if keys and not values:
         insert = """
-            yield self.decode_key(cursor.key()) if self.decode_key else cursor.key()
+            yield self.decode_key(data_cursor.key()) if self.decode_key else data_cursor.key()
         """.strip()
     elif values and not keys:
         insert = """
-            yield self.decode_value(cursor.value()) if self.decode_value else cursor.value()
+            yield \
+            (self.decode_value(data_cursor.value(), pickle.loads(meta_cursor.value())) if self.get_metadata else self.decode_value(data_cursor.value())) \
+            if self.decode_value else data_cursor.value()
         """
     else:
         insert = """
             yield (
-                self.decode_key(cursor.key()) if self.decode_key else cursor.key(),
-                self.decode_value(cursor.value()) if self.decode_value else cursor.value()
+                self.decode_key(data_cursor.key()) if self.decode_key else data_cursor.key(),
+                (self.decode_value(data_cursor.value(), pickle.loads(meta_cursor.value())) if self.get_metadata else self.decode_value(data_cursor.value())) \
+                if self.decode_value else data_cursor.value()
             )
         """
     return (code.format(insert), compile_function(
@@ -108,19 +107,14 @@ class Dict(Sized, metaclass = DictMeta):
         /,*,
         create: bool = True,
         bind: bool = True,
-        type_check: bool = True,
-        versioned: bool = True,
         metadata: Optional[typing.Dict[str, Any]] = None,
-        storage_path: Optional[str] = None
+        site: Optional[str] = None,
+        on_init: Optional[Callable[[bool], None]] = None
     ):
-        if path is not None:
-            name, namespace = resolve_path(path)
-        else:
-            name = namespace = None
-        Entity.__init__(
-            self, name, properties = [{}, {}], namespace = namespace,
-            create = create, bind = bind, versioned = versioned,
-            type_check = type_check, metadata = metadata, storage_path = storage_path
+        super().__init__(
+            path, db_properties = [{}, {}],
+            create = create, bind = bind, on_init = on_init,
+            metadata = metadata, site = site
         )
 
     def __getitem__(
@@ -128,21 +122,22 @@ class Dict(Sized, metaclass = DictMeta):
         key: Any,
         /
     ) -> Any:
-        key = self.encode_key(key) if self.encode_key else key
+        key_bytes = self.encode_key(key) if self.encode_key else key
         try:
-            implicit = False
-            txn = thread.local.transaction
-            if not txn:
-                implicit = True
-                txn = self._Entity__env.begin()
-            result = txn.get(key = key, default = None, db = self._Entity__userdb[0])
+            txn, _, _, implicit = \
+            thread.local.context.get(self._Entity__env, write = False)
+            data = txn.get(key = key_bytes, db = self._Entity__userdb[0])
+            if data is not None:
+                meta = pickle.loads(txn.get(key = key_bytes, db = self._Entity__userdb[1])) \
+                if self.get_metadata else None
             if implicit:
                 txn.commit()
         except BaseException as exc:
-            self._Entity__abort(exc, txn if implicit else None)
-        if result is None:
+            self._Entity__abort(exc, txn, implicit)
+        if data is None:
             raise KeyError()
-        return self.decode_value(result) if self.decode_value else result
+        return (self.decode_value(data, meta) if self.get_metadata else self.decode_value(data)) \
+        if self.decode_value else data
 
     def get(
         self,
@@ -150,19 +145,22 @@ class Dict(Sized, metaclass = DictMeta):
         default: Any = None,
         /
     ) -> Any:
-        key = self.encode_key(key) if self.encode_key else key
+        key_bytes = self.encode_key(key) if self.encode_key else key
         try:
-            implicit = False
-            txn = thread.local.transaction
-            if not txn:
-                implicit = True
-                txn = self._Entity__env.begin()
-            result = txn.get(key = key, default = default, db = self._Entity__userdb[0])
+            txn, _, _, implicit = \
+            thread.local.context.get(self._Entity__env, write = False)
+            data = txn.get(key = key_bytes, db = self._Entity__userdb[0])
+            if data is not None:
+                meta = pickle.loads(txn.get(key = key_bytes, db = self._Entity__userdb[1])) \
+                if self.get_metadata else None
             if implicit:
                 txn.commit()
         except BaseException as exc:
-            self._Entity__abort(exc, txn if implicit else None)
-        return self.decode_value(result) if self.decode_value and result != default else result
+            self._Entity__abort(exc, txn, implicit)
+        if data is None:
+            return default
+        return (self.decode_value(data, meta) if self.get_metadata else self.decode_value(data)) \
+        if self.decode_value else data
 
     def setdefault(
         self,
@@ -170,59 +168,69 @@ class Dict(Sized, metaclass = DictMeta):
         default: Any = None,
         /
     ) -> Any:
-        key = self.encode_key(key) if self.encode_key else key
+        key_bytes = self.encode_key(key) if self.encode_key else key
         try:
-            txn = cursor = None
-            cursor = thread.local.cursors[id(self._Entity__userdb[0])]
-            if not cursor:
-                txn = self._Entity__env.begin(write = True)
-                cursor = txn.cursor(db = self._Entity__userdb[0])
-            result = cursor.set_key(key)
+            txn, cursors, changed, implicit = \
+            thread.local.context.get(self._Entity__env, write = True)
+            cursor = cursors[self._Entity__userdb[0]]
+            result = cursor.set_key(key_bytes)
             if result:
-                value = cursor.value()
+                data = cursor.value()
+                meta = pickle.loads(txn.get(key = key_bytes, db = self._Entity__userdb[1])) \
+                if self.get_metadata else None
             else:
-                default = self.encode_value(default) if self.encode_value else default
-                assert cursor.put(key = key, value = default)
-                if txn and self._Entity__vers:
-                    self.increment_version(use_transaction = txn)
-                elif not txn and self._Entity__vers:
-                    thread.local.changed.add(self)
-            if txn:
+                data = self.encode_value(default) if self.encode_value else default
+                meta = pickle.dumps(self.get_metadata(default)) if self.get_metadata else None
+                assert cursor.put(key = key_bytes, value = data, overwrite = True, append = False)
+                if meta is not None:
+                    assert txn.put(
+                        key = key_bytes, value = meta, overwrite = True, append = False,
+                        db = self._Entity__userdb[1]
+                    )
+                if implicit:
+                    self._Entity__increment_version(cursors)
+                else:
+                    changed.add(self)
+            if implicit:
                 txn.commit()
         except BaseException as exc:
-            self._Entity__abort(exc, txn)
+            self._Entity__abort(exc, txn, implicit)
         finally:
-            if txn and cursor:
+            if implicit and cursor:
                 cursor.close()
-        return default if not result else (self.decode_value(value) if self.decode_value else value)
+        return default if not result else (
+            (self.decode_value(data, meta) if self.get_metadata else self.decode_value(data)) \
+            if self.decode_value else data
+        )
 
     def popitem(self) -> Any:
         try:
-            txn = cursor = None
-            cursor = thread.local.cursors[id(self._Entity__userdb[0])]
-            if not cursor:
-                txn = self._Entity__env.begin(write = True)
-                cursor = txn.cursor(db = self._Entity__userdb[0])
+            txn, cursors, changed, implicit = \
+            thread.local.context.get(self._Entity__env, write = True)
+            cursor = cursors[self._Entity__userdb[0]]
             result = cursor.last()
             if result:
                 key = cursor.key()
-                value = cursor.pop(key)
-                if txn and self._Entity__vers:
-                    self.increment_version(use_transaction = txn)
-                elif not txn and self._Entity__vers:
-                    thread.local.changed.add(self)
-            if txn:
+                data = cursor.pop(key)
+                meta = pickle.loads(txn.pop(key = key, db = self._Entity__userdb[1])) \
+                if self.get_metadata else None
+                if implicit:
+                    self._Entity__increment_version(cursors)
+                else:
+                    changed.add(self)
+            if implicit:
                 txn.commit()
-            if not result:
-                raise KeyError()
         except BaseException as exc:
-            self._Entity__abort(exc, txn)
+            self._Entity__abort(exc, txn, implicit)
         finally:
-            if txn and cursor:
+            if implicit and cursor:
                 cursor.close()
+        if not result:
+            raise KeyError()
         return (
             self.decode_key(key) if self.decode_key else key,
-            self.decode_value(value) if self.decode_value else value
+            (self.decode_value(data, meta) if self.get_metadata else self.decode_value(data)) \
+            if self.decode_value else data
         )
 
     def pop(
@@ -231,72 +239,73 @@ class Dict(Sized, metaclass = DictMeta):
         default: Any = unspecified_class(),
         /
     ) -> Any:
-        key = self.encode_key(key) if self.encode_key else key
+        key_bytes = self.encode_key(key) if self.encode_key else key
         try:
-            txn = cursor = None
-            cursor = thread.local.cursors[id(self._Entity__userdb[0])]
-            if not cursor:
-                txn = self._Entity__env.begin(write = True)
-                cursor = txn.cursor(db = self._Entity__userdb[0])
-            result = cursor.pop(key)
-            if txn:
-                if result is not None and self._Entity__vers:
-                    self.increment_version(use_transaction = txn)
+            txn, cursors, changed, implicit = \
+            thread.local.context.get(self._Entity__env, write = True)
+            cursor = cursors[self._Entity__userdb[0]]
+            data = cursor.pop(key_bytes)
+            if data is not None:
+                meta = pickle.loads(txn.pop(key = key_bytes, db = self._Entity__userdb[1])) \
+                if self.get_metadata else None
+            if implicit:
+                if data is not None:
+                    self._Entity__increment_version(cursors)
                 txn.commit()
-            elif result is not None and self._Entity__vers:
-                thread.local.changed.add(self)
+            elif data is not None:
+                changed.add(self)
         except BaseException as exc:
-            self._Entity__abort(exc, txn)
+            self._Entity__abort(exc, txn, implicit)
         finally:
-            if txn and cursor:
+            if implicit and cursor:
                 cursor.close()
-        if result is None and isinstance(default, unspecified_class):
+        if data is None and isinstance(default, unspecified_class):
             raise KeyError()
-        if result is None:
+        if data is None:
             return default
-        return self.decode_value(result) if self.decode_value else result
+        return (self.decode_value(data, meta) if self.get_metadata else self.decode_value(data)) \
+        if self.decode_value else data
 
     def __delitem__(
         self,
         key: Any,
         /
     ):
-        key = self. encode_key(key) if self.encode_key else key
+        key_bytes = self. encode_key(key) if self.encode_key else key
         try:
-            implicit = False
-            txn = thread.local.transaction
-            if not txn:
-                implicit = True
-                txn = self._Entity__env.begin(write = True)
-            result = txn.delete(key = key, db = self._Entity__userdb[0])
+            txn, cursors, changed, implicit = \
+            thread.local.context.get(self._Entity__env, write = True)
+            result = txn.delete(key = key_bytes, db = self._Entity__userdb[0])
+            if result and self.get_metadata:
+                assert txn.delete(key = key_bytes, db = self._Entity__userdb[1])
             if implicit:
-                if result and self._Entity__vers:
-                    self.increment_version(use_transaction = txn)
+                if result:
+                    self._Entity__increment_version(cursors)
                 txn.commit()
-            elif self._Entity__vers:
-                thread.local.changed.add(self)
+            elif result:
+                changed.add(self)
         except BaseException as exc:
-            self._Entity__abort(exc, txn if implicit else None)
+            self._Entity__abort(exc, txn, implicit)
+        if not result:
+            raise KeyError()
 
     def __contains__(
         self,
         key: Any,
         /
     ) -> bool:
-        key = self.encode_key(key) if self.encode_key else key
+        key_bytes = self.encode_key(key) if self.encode_key else key
         try:
-            txn = cursor = None
-            cursor = thread.local.cursors[id(self._Entity__userdb[0])]
-            if not cursor:
-                txn = self._Entity__env.begin()
-                cursor = txn.cursor(db = self._Entity__userdb[0])
-            result = cursor.set_key(key)
-            if txn:
+            txn, cursors, _, implicit = \
+            thread.local.context.get(self._Entity__env, write = False)
+            cursor = cursors[self._Entity__userdb[0]]
+            result = cursor.set_key(key_bytes)
+            if implicit:
                 txn.commit()
         except BaseException as exc:
-            self._Entity__abort(exc, txn)
+            self._Entity__abort(exc, txn, implicit)
         finally:
-            if txn and cursor:
+            if implicit and cursor:
                 cursor.close()
         return result
 
@@ -306,26 +315,29 @@ class Dict(Sized, metaclass = DictMeta):
         value: Any,
         /
     ):
-        key = self.encode_key(key) if self.encode_key else key
-        value = self.encode_value(value) if self.encode_value else value
+        key_bytes = self.encode_key(key) if self.encode_key else key
+        meta = pickle.dumps(self.get_metadata(value)) if self.get_metadata else None
+        value_bytes = self.encode_value(value) if self.encode_value else value
         try:
-            implicit = False
-            txn = thread.local.transaction
-            if not txn:
-                implicit = True
-                txn = self._Entity__env.begin(write = True)
+            txn, cursors, changed, implicit = \
+            thread.local.context.get(self._Entity__env, write = True)
             result = txn.put(
-                key = key, value = value, overwrite = True, append = False,
+                key = key_bytes, value = value_bytes, overwrite = True, append = False,
                 db = self._Entity__userdb[0]
             )
+            if result and meta:
+                assert txn.put(
+                    key = key_bytes, value = meta, overwrite = True, append = False,
+                    db = self._Entity__userdb[1]
+                )
             if implicit:
-                if result and self._Entity__vers:
-                    self.increment_version(use_transaction = txn)
+                if result:
+                    self._Entity__increment_version(cursors)
                 txn.commit()
-            elif result and self._Entity__vers:
-                thread.local.changed.add(self)
+            elif result:
+                changed.add(self)
         except BaseException as exc:
-            self._Entity__abort(exc, txn if implicit else None)
+            self._Entity__abort(exc, txn, implicit)
 
     def update(
         self,
@@ -341,7 +353,8 @@ class Dict(Sized, metaclass = DictMeta):
             dict_items = [
                 (
                     self.encode_key(key) if self.encode_key else key,
-                    self.encode_value(value) if self.encode_value else value
+                    (self.encode_value(value) if self.encode_value else value,
+                    pickle.dumps(self.get_metadata(value)) if self.get_metadata else None)
                 )
                 for key, value in args[0].items()
             ]
@@ -349,7 +362,8 @@ class Dict(Sized, metaclass = DictMeta):
             iter_items = [
                 (
                     self.encode_key(key) if self.encode_key else key,
-                    self.encode_value(value) if self.encode_value else value
+                    (self.encode_value(value) if self.encode_value else value,
+                    pickle.dumps(self.get_metadata(value)) if self.get_metadata else None)
                 )
                 for key, value in args[0].items()
             ]
@@ -357,45 +371,53 @@ class Dict(Sized, metaclass = DictMeta):
             iter_items = [
                 (
                     self.encode_key(key) if self.encode_key else key,
-                    self.encode_value(value) if self.encode_value else value
+                    (self.encode_value(value) if self.encode_value else value,
+                    pickle.dumps(self.get_metadata(value)) if self.get_metadata else None)
                 )
                 for key, value in args[0]
             ]
         kwargs_items = [
             (
                 self.encode_key(key) if self.encode_key else key,
-                self.encode_value(value) if self.encode_value else value
+                (self.encode_value(value) if self.encode_value else value,
+                pickle.dumps(self.get_metadata(value)) if self.get_metadata else None)
             )
             for key, value in kwargs.items()
         ]
         try:
-            txn = cursor = None
-            cursor = thread.local.cursors[id(self._Entity__userdb[0])]
-            if not cursor:
-                txn = self._Entity__env.begin(write = True)
-                cursor = txn.cursor(db = self._Entity__userdb[0])
+            txn, cursors, changed, implicit = \
+            thread.local.context.get(self._Entity__env, write = True)
+            cursor = cursors[self._Entity__userdb[0]]
             if dict_items:
-                cons, add = cursor.putmulti(dict_items)
+                cons, add = cursor.putmulti([(key, value[0]) for key, value in dict_items])
                 consumed += cons
                 added += add
             if kwargs_items:
-                cons, add = cursor.putmulti(kwargs_items)
+                cons, add = cursor.putmulti([(key, value[0]) for key, value in kwargs_items])
                 consumed += cons
                 added += add
             if iter_items:
-                cons, add = cursor.putmulti(iter_items)
+                cons, add = cursor.putmulti([(key, value[0]) for key, value in iter_items])
                 consumed += cons
                 added += add
-            if txn:
-                if added and self._Entity__vers:
-                    self.increment_version(use_transaction = txn)
+            if self.get_metadata:
+                cursor = cursors[self._Entity__userdb[1]]
+                if dict_items:
+                    cursor.putmulti([(key, value[1]) for key, value in dict_items])
+                if kwargs_items:
+                    cursor.putmulti([(key, value[1]) for key, value in kwargs_items])
+                if iter_items:
+                    cursor.putmulti([(key, value[1]) for key, value in iter_items])
+            if implicit:
+                if added:
+                    self._Entity__increment_version(cursors)
                 txn.commit()
-            elif added and self._Entity__vers:
-                thread.local.changed.add(self)
+            elif added:
+                changed.add(self)
         except BaseException as exc:
-            self._Entity__abort(exc, txn)
+            self._Entity__abort(exc, txn, implicit)
         finally:
-            if txn and cursor:
+            if implicit and cursor:
                 cursor.close()
 
     __iter__: Callable[..., Iterator[Union[Any, Tuple[Any, Any]]]] = Missing()
