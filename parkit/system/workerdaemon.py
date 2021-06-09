@@ -86,12 +86,12 @@ if __name__ == '__main__':
                         with transaction_context(task_queue._Entity__env, write = True):
                             task, trace_index, args, kwargs = task_queue.get()
                             assert task._Entity__env == task_queue._Entity__env
-                            record = task._Function__traces[trace_index]
+                            record = task._Process__traces[trace_index]
                             if record['status'] == 'submitted':
                                 record['pid'] = os.getpid()
                                 record['node_uid'] = node_uid
                                 record['status'] = 'running'
-                                task._Function__traces[trace_index] = record
+                                task._Process__traces[trace_index] = record
                             else:
                                 assert record['status'] == 'cancelled'
                                 continue
@@ -114,12 +114,12 @@ if __name__ == '__main__':
                 finally:
                     try:
                         with transaction_context(task_queue._Entity__env, write = True):
-                            record = task._Function__traces[trace_index]
+                            record = task._Process__traces[trace_index]
                             record['result'] = result
                             record['error'] = exc_value
                             record['status'] = 'failed' if exc_value else 'finished'
                             record['end_timestamp'] = time.time_ns()
-                            task._Function__traces[trace_index] = record
+                            task._Process__traces[trace_index] = record
                     except ObjectNotFoundError:
                         pass
                     finally:

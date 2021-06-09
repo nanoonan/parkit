@@ -29,6 +29,10 @@ from parkit.adapters.observer import ModuleObserver
 from parkit.adapters.queue import Queue
 from parkit.cluster import terminate_node
 from parkit.storage.context import transaction_context
+from parkit.storage.entity import (
+    Entity,
+    EntityWrapper
+)
 from parkit.utility import (
     create_string_digest,
     envexists,
@@ -41,12 +45,16 @@ logger = logging.getLogger(__name__)
 
 module_observer = ModuleObserver()
 
-class AsyncTraces():
+class AsyncTraces(EntityWrapper):
 
     def __init__(self, traces: Array):
         self._traces = traces
 
-    class AsyncTrace():
+    @property
+    def entity(self) -> Entity:
+        return self._traces
+
+    class AsyncTrace(EntityWrapper):
 
         def __init__(
             self,
@@ -55,6 +63,10 @@ class AsyncTraces():
         ):
             self._traces = traces
             self._trace_index = trace_index
+
+        @property
+        def entity(self) -> Entity:
+            return self._traces
 
         @property
         def record(self) -> typing.Dict[str, Any]:
@@ -327,7 +339,7 @@ class Process(Object):
         args: Optional[Tuple[Any, ...]] = None,
         kwargs: Optional[typing.Dict[str, Any]] = None
     ) -> AsyncTraces.AsyncTrace:
-        process_queue = Queue(constants.TASK_QUEUE_PATH, site = self.site_uuid)
+        task_queue = Queue(constants.TASK_QUEUE_PATH, site = self.site)
         try:
             setenv(constants.ANONYMOUS_SCOPE_FLAG_ENVNAME, self.site_uuid)
             with transaction_context(self._Entity__env, write = True):
@@ -343,7 +355,7 @@ class Process(Object):
                     pid = None,
                     node_uid = None
                 ))
-                process_queue.put((self, trace_index, args, kwargs))
+                task_queue.put((self, trace_index, args, kwargs))
                 return AsyncTraces.AsyncTrace(self.__traces, trace_index)
         finally:
             setenv(constants.ANONYMOUS_SCOPE_FLAG_ENVNAME, None)

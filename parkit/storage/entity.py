@@ -5,7 +5,7 @@ import struct
 import uuid
 
 from typing import (
-    Any, Callable, Dict, List, Optional, Tuple
+    Any, Callable, Dict, List, Optional, Protocol, Tuple
 )
 
 import lmdb
@@ -462,3 +462,9 @@ class Entity(metaclass = EntityMeta):
         finally:
             if implicit and cursor:
                 cursor.close()
+
+class EntityWrapper(Protocol):
+
+    @property
+    def entity(self) -> Entity:
+        """Return wrapped Entity instance"""

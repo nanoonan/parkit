@@ -4,7 +4,10 @@ import types
 
 import parkit.constants as constants
 
-from parkit.storage.entity import Entity
+from parkit.storage.entity import (
+    Entity,
+    EntityWrapper
+)
 from parkit.storage.context import transaction_context
 
 from parkit.utility import (
@@ -17,19 +20,21 @@ logger = logging.getLogger(__name__)
 def wait(*args):
     args = list(args)
     if not args:
-        raise ValueError
+        raise ValueError()
     if isinstance(args[-1], types.FunctionType):
         condition = args.pop()
     else:
         condition = lambda: True
-    if not all(isinstance(arg, Entity) for arg in args):
-        raise ValueError
+    if not all(isinstance(arg, (Entity, EntityWrapper)) for arg in args):
+        print(isinstance(args[0], EntityWrapper))
+        raise ValueError()
+    args = [arg if isinstance(arg, Entity) else arg.entity for arg in args]
     if len(args) > 0:
         if [
             (arg.site_uuid, arg.namespace)
             for arg in args
         ].count((args[0].site_uuid, args[0].namespace)) != len(args):
-            raise ValueError
+            raise ValueError()
     versions = []
     for _ in polling_loop(getenv(constants.ADAPTER_POLLING_INTERVAL_ENVNAME, float)):
         if len(args) > 0:

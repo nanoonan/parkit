@@ -5,10 +5,8 @@ import sys
 import time
 
 from typing import (
-    Any, cast, Dict, Iterator, List, Optional, Tuple, Union
+    cast, Dict, Iterator, List, Optional, Tuple, Union
 )
-
-from tabulate import tabulate
 
 import parkit.constants as constants
 import parkit.storage.threadlocal as thread
@@ -36,26 +34,6 @@ class Directory(Namespace):
 
     def objects(self, /, *, include_hidden: bool = False) -> Iterator[Object]:
         return cast(Iterator[Object], self.entities(include_hidden = include_hidden))
-
-def show(target: Any):
-    if isinstance(target, Directory):
-        rows = []
-        for obj in target.objects():
-            rows.append([
-                obj.path,
-                obj.descriptor['type'],
-                obj.created
-            ])
-        if rows:
-            rows = sorted(rows, key = lambda x: x[0])
-            print(tabulate(
-                rows,
-                showindex = False,
-                headers = ['path', 'type', 'created'],
-                tablefmt = 'fancy_grid'
-            ))
-        else:
-            print('no objects in', target.path)
 
 def pool(site: Optional[str] = None) -> Pool:
     return Pool(site = site)

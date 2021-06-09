@@ -332,7 +332,7 @@ class Dict(Sized, metaclass = DictMeta):
                 assert txn.put(
                     key = key_bytes, value = meta, overwrite = True, append = False,
                     db = self._Entity__userdb[1]
-                )
+            )
             if implicit:
                 if result:
                     self._Entity__increment_version(cursors)

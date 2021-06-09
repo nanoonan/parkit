@@ -20,6 +20,21 @@ import parkit.constants as constants
 
 logger = logging.getLogger(__name__)
 
+class Timer():
+
+    def __init__(self, name: str):
+        self._start = None
+        self._name = name
+
+    def start(self):
+        self._start = time.time_ns()
+
+    def stop(self):
+        logger.info(
+            'timer for %s: %f ms', self._name,
+            (time.time_ns() - self._start) / 1e6
+        )
+
 def compile_function(
     code: str,
     *args: str,

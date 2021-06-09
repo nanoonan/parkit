@@ -6,12 +6,9 @@ from parkit.system.functions import (
     gc,
     pid_table,
     pool,
-    scope_table,
-    show,
+    scope_table
 )
 
 from parkit.system.pidtable import set_pid_entry
 
 from parkit.system.syslog import syslog
-
-from parkit.system.threads import monitor_restarter
