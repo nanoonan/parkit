@@ -1,4 +1,4 @@
-# pylint: disable = too-few-public-methods, broad-except
+# pylint: disable = too-few-public-methods, broad-except, protected-access
 import collections
 import functools
 import os
@@ -119,7 +119,7 @@ class ContextStacks():
     def __init__(self):
         self._stacks = collections.defaultdict(lambda: [])
 
-    def get_depth(self, env: lmdb.Environment) -> int:
+    def depth(self, env: lmdb.Environment) -> int:
         return len(self._stacks[env])
 
     def get(
@@ -191,10 +191,10 @@ class ContextStacks():
                     error = exc
             finally:
                 self._stacks[env].pop()
-                if error:
-                    if isinstance(error, lmdb.Error):
-                        raise TransactionError() from error
-                    raise error
+        if error:
+            if isinstance(error, lmdb.Error):
+                raise TransactionError() from error
+            raise error
 
 class ThreadLocalVars(threading.local):
 

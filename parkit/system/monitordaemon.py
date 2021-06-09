@@ -1,26 +1,27 @@
 # pylint: disable = invalid-name, broad-except, protected-access
 import logging
 import os
-import platform
 import time
 import uuid
 
 import daemoniker
-import psutil
 
 import parkit.constants as constants
 
 from parkit.adapters.dict import Dict
 from parkit.adapters.queue import Queue
-from parkit.cluster.manage import (
+from parkit.cluster import (
     create_pid_filepath,
     launch_node,
     scan_nodes,
     terminate_node
 )
-from parkit.storage.transaction import transaction
+from parkit.storage.site import (
+    get_site_uuid,
+    import_site
+)
+from parkit.system.pool import acquire_daemon_lock
 from parkit.utility import (
-    create_string_digest,
     getenv,
     polling_loop
 )
@@ -29,6 +30,7 @@ logger = logging.getLogger(__name__)
 
 if __name__ == '__main__':
 
+    logger.info('start')
     node_uid = None
     cluster_uid = None
     pid_filepath = None
@@ -38,6 +40,7 @@ if __name__ == '__main__':
         with daemoniker.Daemonizer() as (is_setup, daemonizer):
 
             if is_setup:
+                logger.info('setup')
                 assert constants.NODE_UID_ENVNAME in os.environ and \
                 constants.CLUSTER_UID_ENVNAME in os.environ
                 node_uid = os.environ[constants.NODE_UID_ENVNAME]
@@ -52,50 +55,20 @@ if __name__ == '__main__':
             if is_parent:
                 pass
 
-        if platform.system() == 'Windows':
-            os.environ['__PARKIT_DAEMON__'] = 'True'
-            if '__INVOKE_DAEMON__' in os.environ:
-                del os.environ['__INVOKE_DAEMON__']
-
-        # storage_path = get_storage_path()
-        # assert storage_path is not None
-        # assert cluster_uid == create_string_digest(storage_path)
-        storage_path = None
+        storage_path = getenv(constants.CLUSTER_STORAGE_PATH_ENVNAME, str)
+        site_uuid = getenv(constants.CLUSTER_SITE_UUID_ENVNAME, str)
+        import_site(storage_path, name = 'main')
+        assert get_site_uuid('main') == site_uuid
 
         pool_state = Dict(constants.POOL_STATE_DICT_PATH)
 
         if 'pool_size' not in pool_state:
             pool_state['pool_size'] = getenv(constants.POOL_SIZE_ENVNAME, int)
 
-        def acquire():
-            with transaction(pool_state.namespace):
-                if 'monitor' not in pool_state:
-                    pool_state['monitor'] = (
-                        os.getpid(),
-                        getenv(constants.PROCESS_UUID_ENVNAME, str)
-                    )
-                    return True
-                monitor_pid, monitor_uuid = pool_state['monitor']
-                if monitor_pid == os.getpid() and \
-                monitor_uuid == getenv(constants.PROCESS_UUID_ENVNAME, str):
-                    return True
-                try:
-                    process = psutil.Process(monitor_pid)
-                    if constants.PROCESS_UUID_ENVNAME in process.environ():
-                        if monitor_uuid == process.environ()[constants.PROCESS_UUID_ENVNAME]:
-                            return False
-                except (psutil.NoSuchProcess, psutil.AccessDenied):
-                    pass
-                pool_state['monitor'] = (
-                    os.getpid(),
-                    getenv(constants.PROCESS_UUID_ENVNAME, str)
-                )
-                return True
-
-        if not acquire():
-            logger.info('monitor failed to acquire...exiting (%s)', node_uid)
-            assert node_uid is not None
-            terminate_node(node_uid, storage_path)
+        if not acquire_daemon_lock('monitor', pool_state):
+            logger.info('monitor failed to acquire lock...exiting (%s)', node_uid)
+            assert node_uid is not None and cluster_uid is not None
+            terminate_node(node_uid, cluster_uid)
             while True:
                 time.sleep(1)
 
@@ -110,7 +83,7 @@ if __name__ == '__main__':
         for _ in polling_loop(polling_interval):
             try:
                 pre_scan_termination_count = len(termination_queue)
-                running_nodes = scan_nodes(storage_path)
+                running_nodes = scan_nodes(site_uuid)
                 post_scan_termination_count = len(termination_queue)
 
                 worker_nodes = [
@@ -125,20 +98,30 @@ if __name__ == '__main__':
 
                 if post_scan_delta > 0:
                     for _ in range(post_scan_delta):
+                        assert cluster_uid is not None
                         launch_node(
-                            'worker-{0}'.format(create_string_digest(str(uuid.uuid4()))),
-                            'parkit.cluster.workerdaemon',
-                            storage_path
+                            'worker-{0}'.format(str(uuid.uuid4())),
+                            'parkit.system.workerdaemon',
+                            cluster_uid,
+                            {
+                                constants.CLUSTER_STORAGE_PATH_ENVNAME: storage_path,
+                                constants.CLUSTER_SITE_UUID_ENVNAME: site_uuid
+                            }
                         )
                 elif pre_scan_delta < 0:
                     for _ in range(abs(pre_scan_delta)):
-                        termination_queue.put_nowait(True)
+                        termination_queue.put(True)
 
                 if 'scheduler' not in [node_uid.split('-')[0] for node_uid in running_nodes]:
+                    assert cluster_uid is not None
                     launch_node(
-                        'scheduler-{0}'.format(create_string_digest(str(uuid.uuid4()))),
-                        'parkit.cluster.scheddaemon',
-                        storage_path
+                        'scheduler-{0}'.format(str(uuid.uuid4())),
+                        'parkit.system.scheddaemon',
+                        cluster_uid,
+                        {
+                            constants.CLUSTER_STORAGE_PATH_ENVNAME: storage_path,
+                            constants.CLUSTER_SITE_UUID_ENVNAME: site_uuid
+                        }
                     )
             except Exception:
                 logger.exception('(monitor) error on pid %i', os.getpid())

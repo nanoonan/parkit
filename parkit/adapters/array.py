@@ -1,4 +1,4 @@
-# pylint: disable = not-callable, broad-except, unused-import
+# pylint: disable = not-callable, broad-except, unused-import, no-self-use
 import logging
 import pickle
 import struct
@@ -12,8 +12,11 @@ import parkit.storage.threadlocal as thread
 
 from parkit.adapters.sized import Sized
 from parkit.storage.context import transaction_context
-from parkit.storage.entitymeta import EntityMeta
-from parkit.storage.missing import Missing
+from parkit.storage.entitymeta import (
+    ClassBuilder,
+    EntityMeta,
+    Missing
+)
 
 from parkit.utility import compile_function
 
@@ -148,27 +151,26 @@ def method(
         code, insert0, insert1, insert2, glbs = globals()
     ))
 
-class ArrayMeta(EntityMeta):
+class ArrayMeta(ClassBuilder):
 
-    def __initialize_class__(cls):
-        method: Any
-        if isinstance(cast(Array, cls).__contains__, Missing):
-            code, method = mkcontains(return_bool = True)
-            setattr(cls, '__contains__', method)
-            setattr(cls, '__contains__code', code)
-        if isinstance(cast(Array, cls).index, Missing):
-            code, method = mkcontains(return_bool = False)
-            setattr(cls, 'index', method)
-            setattr(cls, 'indexcode', code)
-        if isinstance(cast(Array, cls).__iter__, Missing):
-            code, method = mkiter(reverse = False)
-            setattr(cls, '__iter__', method)
-            setattr(cls, '__iter__code', code)
-        if isinstance(cast(Array, cls).__reversed__, Missing):
-            code, method = mkiter(reverse = True)
-            setattr(cls, '__reversed__', method)
-            setattr(cls, '__reversed__code', code)
-        super().__initialize_class__()
+    def __build_class__(cls, target, attr):
+        if target == Array:
+            if attr == '__contains__':
+                code, method = mkcontains(return_bool = True)
+                setattr(target, '__contains__', method)
+                setattr(target, '__contains__code', code)
+            elif attr == 'index':
+                code, method = mkcontains(return_bool = False)
+                setattr(target, 'index', method)
+                setattr(target, 'indexcode', code)
+            elif attr == '__iter__':
+                code, method = mkiter(reverse = False)
+                setattr(target, '__iter__', method)
+                setattr(target, '__iter__code', code)
+            elif attr == '__reversed__':
+                code, method = mkiter(reverse = True)
+                setattr(target, '__reversed__', method)
+                setattr(target, '__reversed__code', code)
 
 class Array(Sized, metaclass = ArrayMeta):
 

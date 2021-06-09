@@ -1,9 +1,9 @@
+# pylint: disable = protected-access
 import logging
 import os
+import typing
 
-from typing import (
-    List, Tuple
-)
+from typing import Tuple
 
 import psutil
 
@@ -18,12 +18,12 @@ logger = logging.getLogger(__name__)
 
 import_site(
     getenv(constants.GLOBAL_SITE_STORAGE_PATH_ENVNAME, str),
-    name = '__global__'
+    name = constants.GLOBAL_SITE_NAME
 )
 
 pid_table = Dict(
     constants.PID_TABLE_DICT_PATH,
-    site = '__global__'
+    site = constants.GLOBAL_SITE_NAME
 )
 
 def set_pid_entry():
@@ -33,7 +33,7 @@ def set_pid_entry():
     )
     logger.info('set pid %i to entry %s', os.getpid(), str(pid_table[os.getpid()]))
 
-def get_pidtable_snapshot() -> List[Tuple[int, Tuple[float, str]]]:
+def get_pidtable_snapshot() -> typing.Dict[int, Tuple[float, str]]:
     with transaction_context(pid_table._Entity__env, write = True):
         active_pids = []
         recorded_pids = list(pid_table.keys())
@@ -49,4 +49,4 @@ def get_pidtable_snapshot() -> List[Tuple[int, Tuple[float, str]]]:
                 pass
         for pid in set(recorded_pids).difference(set(active_pids)):
             del pid_table[pid]
-        return list(pid_table.items())
+        return dict(pid_table)

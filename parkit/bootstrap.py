@@ -36,16 +36,6 @@ else:
     path = os.path.abspath(getenv(constants.GLOBAL_SITE_STORAGE_PATH_ENVNAME, str))
     setenv(constants.GLOBAL_SITE_STORAGE_PATH_ENVNAME, path)
 
-if envexists(constants.CLUSTER_STORAGE_PATH_ENVNAME):
-    if not envexists(constants.NODE_UID_ENVNAME) \
-    or not envexists(constants.CLUSTER_UID_ENVNAME):
-        setenv(constants.CLUSTER_STORAGE_PATH_ENVNAME, None)
-    else:
-        setenv(
-            constants.CLUSTER_STORAGE_PATH_ENVNAME,
-            os.path.abspath(getenv(constants.CLUSTER_STORAGE_PATH_ENVNAME, str))
-        )
-
 for name, default in get_lmdb_profiles()['default'].copy().items():
     if envexists(name):
         if checkenv(name, type(default)):
@@ -76,4 +66,10 @@ if not envexists(constants.ADAPTER_POLLING_INTERVAL_ENVNAME):
     setenv(
         constants.ADAPTER_POLLING_INTERVAL_ENVNAME,
         str(constants.DEFAULT_ADAPTER_POLLING_INTERVAL)
+    )
+
+if not envexists(constants.RESTARTER_POLLING_INTERVAL_ENVNAME):
+    setenv(
+        constants.RESTARTER_POLLING_INTERVAL_ENVNAME,
+        str(constants.DEFAULT_RESTARTER_POLLING_INTERVAL)
     )

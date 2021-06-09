@@ -1,5 +1,4 @@
 import logging
-import os
 
 from typing import (
     Any, Dict, Iterator, Optional, Tuple
@@ -8,15 +7,16 @@ from typing import (
 import parkit.storage.threadlocal as thread
 
 from parkit.exceptions import SiteNotSpecifiedError
+from parkit.storage.entities import (
+    descriptor_iter,
+    load_entity,
+    name_iter,
+    entity_iter
+)
+from parkit.storage.entity import Entity
 from parkit.storage.environment import (
     get_namespace_size,
     set_namespace_size
-)
-from parkit.storage.objects import (
-    descriptor_iter,
-    load_object,
-    name_iter,
-    object_iter
 )
 from parkit.storage.site import (
     get_site_name,
@@ -80,9 +80,9 @@ class Namespace():
     def __getitem__(
         self,
         name: str
-    ) -> Any:
+    ) -> Entity:
         storage_path = StoragePath(site_uuid = self._site_uuid).path
-        obj = load_object(get_site_name(self._site_uuid), storage_path, self._path, name)
+        obj = load_entity(get_site_name(self._site_uuid), storage_path, self._path, name)
         if obj is not None:
             return obj
         raise KeyError()
@@ -106,17 +106,17 @@ class Namespace():
         storage_path = StoragePath(site_uuid = self._site_uuid).path
         return name_iter(storage_path, self._path, include_hidden = include_hidden)
 
-    def objects(self, /, *, include_hidden: bool = False) -> Iterator[Any]:
+    def entities(self, /, *, include_hidden: bool = False) -> Iterator[Entity]:
         storage_path = StoragePath(site_uuid = self._site_uuid).path
-        return object_iter(
+        return entity_iter(
             get_site_name(self._site_uuid),
             storage_path, self._path,
             include_hidden = include_hidden
         )
 
-    def __iter__(self) -> Iterator[Any]:
+    def __iter__(self) -> Iterator[Entity]:
         storage_path = StoragePath(site_uuid = self._site_uuid).path
-        return object_iter(get_site_name(self._site_uuid), storage_path, self._path)
+        return entity_iter(get_site_name(self._site_uuid), storage_path, self._path)
 
     def __len__(self) -> int:
         return len(list(self.names()))
@@ -125,25 +125,3 @@ class Namespace():
         if isinstance(obj, str):
             return obj in list(self.names())
         return obj in list(self.__iter__())
-
-def namespaces(
-    site: Optional[str] = None,
-    include_hidden: bool = False
-) -> Iterator[Namespace]:
-    if site:
-        site_uuid = get_site_uuid(site)
-    elif thread.local.storage_path:
-        site_uuid = thread.local.storage_path.site_uuid
-    else:
-        raise SiteNotSpecifiedError()
-    storage_path = StoragePath(site_uuid = site_uuid).path
-    for folder, _, _ in os.walk(storage_path):
-        if folder != storage_path:
-            top_level_namespace = \
-            folder[len(storage_path):].split(os.path.sep)[1]
-            if include_hidden or not (
-                top_level_namespace.startswith('__') and top_level_namespace.endswith('__')
-            ):
-                yield Namespace('/'.join(
-                    folder[len(storage_path):].split(os.path.sep)[1:]
-                ))

@@ -1,6 +1,8 @@
+# pylint: disable = broad-except
 import importlib
 import logging
 import os
+import platform
 import sys
 import subprocess
 import tempfile
@@ -15,10 +17,7 @@ import psutil
 
 import parkit.constants as constants
 
-from parkit.utility import (
-    create_string_digest,
-    getenv
-)
+from parkit.utility import getenv
 
 logger = logging.getLogger(__name__)
 
@@ -48,16 +47,16 @@ def create_pid_filepath(
         node_uid + constants.PID_FILENAME_EXTENSION
     )
 
-def terminate_all_nodes(storage_path: str):
+def terminate_all_nodes(cluster_uid: str):
 
     def run():
-        cluster_uid = create_string_digest(storage_path)
         for proc in psutil.process_iter(['environ', 'pid']):
             try:
                 env = proc.info['environ']
-                if env and constants.NODE_UID_ENVNAME in env and constants.CLUSTER_UID_ENVNAME in env:
+                if env and constants.NODE_UID_ENVNAME in env and \
+                constants.CLUSTER_UID_ENVNAME in env:
                     if env[constants.CLUSTER_UID_ENVNAME] == cluster_uid:
-                        if '__INVOKE_DAEMON__' in env or '__PARKIT_DAEMON__' in env:
+                        if '__INVOKE_DAEMON__' in env:
                             pid = proc.info['pid']
                             terminate_process(
                                 pid,
@@ -97,9 +96,7 @@ def get_recorded_pids(cluster_uid: str) -> Dict[int, Tuple[str, bool]]:
                 logger.exception('cluster error')
     return recorded_pids
 
-def scan_nodes(storage_path: str) -> List[str]:
-
-    cluster_uid = create_string_digest(storage_path)
+def scan_nodes(cluster_uid: str) -> List[str]:
 
     #
     # Try to capture all the active pid files in temp directory.
@@ -114,7 +111,7 @@ def scan_nodes(storage_path: str) -> List[str]:
             env = proc.info['environ']
             if env and constants.NODE_UID_ENVNAME in env and constants.CLUSTER_UID_ENVNAME in env:
                 if env[constants.CLUSTER_UID_ENVNAME] == cluster_uid:
-                    if '__INVOKE_DAEMON__' in env or '__PARKIT_DAEMON__' in env:
+                    if '__INVOKE_DAEMON__' in env:
                         pid = proc.info['pid']
                         if pid not in recorded_pids:
                             node_uid = env[constants.NODE_UID_ENVNAME]
@@ -156,11 +153,10 @@ def scan_nodes(storage_path: str) -> List[str]:
 
 def terminate_node(
     node_uid: str,
-    storage_path: str
+    cluster_uid: str
 ):
 
     def run():
-        cluster_uid = create_string_digest(storage_path)
         try:
             pid_filepath = create_pid_filepath(node_uid, cluster_uid)
             daemoniker.send(pid_filepath, daemoniker.SIGINT)
@@ -172,7 +168,7 @@ def terminate_node(
                     if env and constants.NODE_UID_ENVNAME in env and \
                     constants.CLUSTER_UID_ENVNAME in env:
                         if env[constants.CLUSTER_UID_ENVNAME] == cluster_uid:
-                            if '__INVOKE_DAEMON__' in env or '__PARKIT_DAEMON__' in env:
+                            if '__INVOKE_DAEMON__' in env:
                                 pid = proc.info['pid']
                                 terminate_process(
                                     pid,
@@ -190,24 +186,24 @@ def terminate_node(
 def launch_node(
     node_uid: str,
     node_module: str,
-    storage_path: str,
+    cluster_uid: str,
     environment: Optional[Dict[str, str]] = None
 ):
     def run():
-        cluster_uid = create_string_digest(storage_path)
         module = importlib.import_module(node_module)
         path = os.path.abspath(module.__file__)
         env = os.environ.copy()
-        env[constants.STORAGE_PATH_ENVNAME] = storage_path
         env[constants.NODE_UID_ENVNAME] = node_uid
         env[constants.CLUSTER_UID_ENVNAME] = cluster_uid
         if environment:
             for name, value in environment.items():
                 if name not in [
                     constants.NODE_UID_ENVNAME, constants.CLUSTER_UID_ENVNAME,
-                    constants.STORAGE_PATH_ENVNAME
                 ]:
                     env[name] = value
+        if platform.system() == 'Windows':
+            if '__INVOKE_DAEMON__' in env:
+                del env['__INVOKE_DAEMON__']
         subprocess.run(
             [sys.executable, path],
             check = True, env = env

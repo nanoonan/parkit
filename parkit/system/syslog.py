@@ -11,12 +11,12 @@ from parkit.utility import getenv
 
 import_site(
     getenv(constants.GLOBAL_SITE_STORAGE_PATH_ENVNAME, str),
-    name = '__global__'
+    name = constants.GLOBAL_SITE_NAME
 )
 
 syslog: Array = Array(
     constants.SYSLOG_PATH,
-    site = '__global__'
+    site = constants.GLOBAL_SITE_NAME
 )
 
 class LogHandler(logging.StreamHandler):

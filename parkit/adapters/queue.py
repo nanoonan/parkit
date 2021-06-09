@@ -1,4 +1,4 @@
-# pylint: disable = not-callable, broad-except
+# pylint: disable = not-callable, broad-except, attribute-defined-outside-init, no-self-use
 import logging
 import math
 import pickle
@@ -9,36 +9,36 @@ from typing import (
     Any, ByteString, Callable, cast, Dict, Optional, Tuple
 )
 
-import parkit.constants as constants
 import parkit.storage.threadlocal as thread
 
 from parkit.adapters.sized import Sized
-from parkit.storage.context import transaction_context
-from parkit.storage.entitymeta import EntityMeta
-from parkit.storage.missing import Missing
-from parkit.utility import (
-    compile_function,
-    getenv,
-    polling_loop
+from parkit.storage.entitymeta import (
+    ClassBuilder,
+    Missing
 )
+from parkit.utility import compile_function
 
 logger = logging.getLogger(__name__)
 
-def mkgetnowait(fifo: bool = True) -> Tuple[str, Callable[..., Any]]:
+def mkget(fifo: bool = True) -> Tuple[str, Callable[..., Any]]:
     code = """
 def method(self):
     try:
-        txn, cursors, _, implicit = \
+        txn, cursors, changed, implicit = \
         thread.local.context.get(self._Entity__env, write = True)
         cursor = cursors[self._Entity__userdb[0]]
+        data = meta = None
         if {0}:
             key = cursor.key()
             data = cursor.pop(key)
-            meta = txn.pop(key, db = self._Entity__userdb[1]) if self.get_metadata else None
-        else:
-            data = meta = None
+            if data is not None and self.get_metadata:
+                meta = txn.pop(key, db = self._Entity__userdb[1])
         if implicit:
+            if data is not None:
+                self._Entity__increment_version(cursors)
             txn.commit()
+        elif data is not None:
+            changed.add(self)
     except BaseException as exc:
         self._Entity__abort(exc, txn, implicit)
     finally:
@@ -58,7 +58,7 @@ def method(self):
         code, insert, glbs = globals()
     ))
 
-class _Queue(Sized):
+class QueueBase(Sized):
 
     __maxsize_cached = math.inf
 
@@ -81,14 +81,19 @@ class _Queue(Sized):
         site: Optional[str] = None,
         on_init: Optional[Callable[[bool], None]] = None
     ):
+        def _on_init(create: bool):
+            if create:
+                self.__maxsize = maxsize if maxsize > 0 else math.inf
+            if on_init:
+                on_init(create)
+
         super().__init__(
             path,
             db_properties = [{'integerkey': True}, {'integerkey': True}],
-            create = create, bind = bind, on_init = on_init,
+            create = create, bind = bind, on_init = _on_init,
             metadata = metadata, site = site
         )
-        if '__maxsize' not in self.attributes():
-            self.__maxsize = maxsize if maxsize > 0 else math.inf
+
         self.__maxsize_cached = self.__maxsize
 
     def __setstate__(self, from_wire: Tuple[str, str, str]):
@@ -100,31 +105,6 @@ class _Queue(Sized):
         return int(self.__maxsize_cached) if self.__maxsize_cached != math.inf else None
 
     def put(
-        self,
-        item: Any,
-        /, *,
-        block: bool = True,
-        timeout: Optional[float] = None,
-        polling_interval: Optional[float] = None
-    ):
-        if self.__maxsize_cached != math.inf and block and (timeout is None or timeout > 0):
-            try:
-                for _ in polling_loop(
-                    polling_interval if polling_interval is not None else \
-                    getenv(constants.ADAPTER_POLLING_INTERVAL_ENVNAME, float),
-                    timeout = timeout
-                ):
-                    if self.__len__() < self.__maxsize_cached:
-                        with transaction_context(self._Entity__env, write = True):
-                            if self.__len__() < self.__maxsize_cached:
-                                self.put_nowait(item)
-                                break
-            except TimeoutError as exc:
-                raise queue.Full() from exc
-        else:
-            self.put_nowait(item)
-
-    def put_nowait(
         self,
         item: Any,
         /
@@ -161,33 +141,9 @@ class _Queue(Sized):
             if implicit and cursor:
                 cursor.close()
 
-    def get(
-        self,
-        /, *,
-        block: bool = True,
-        timeout: Optional[float] = None,
-        polling_interval: Optional[float] = None
-    ) -> Any:
-        if not block or timeout is not None and timeout <= 0:
-            return self.get_nowait()
-        try:
-            default_polling_interval = getenv(constants.ADAPTER_POLLING_INTERVAL_ENVNAME, float)
-            for _ in polling_loop(
-                polling_interval if polling_interval is not None else \
-                default_polling_interval,
-                timeout = timeout
-            ):
-                try:
-                    return self.get_nowait()
-                except queue.Empty:
-                    pass
-        except TimeoutError as exc:
-            raise queue.Empty() from exc
-        return None
-
     qsize: Callable[..., int] = Sized.__len__
 
-    get_nowait: Callable[..., Any] = Missing()
+    get: Callable[..., Any] = Missing()
 
     def empty(self) -> bool:
         return self.__len__() == 0
@@ -195,26 +151,24 @@ class _Queue(Sized):
     def full(self) -> bool:
         return self.__len__() == self.__maxsize_cached
 
-class QueueMeta(EntityMeta):
+class QueueMeta(ClassBuilder):
 
-    def __initialize_class__(cls):
-        if isinstance(cast(_Queue, cls).get_nowait, Missing):
-            code, method =  mkgetnowait(fifo = True)
-            setattr(cls, 'get_nowait', method)
-            setattr(cls, 'get_nowaitcode', code)
-        super().__initialize_class__()
+    def __build_class__(cls, target, attr):
+        if target == Queue and attr == 'get':
+            code, method =  mkget(fifo = True)
+            setattr(target, 'get', method)
+            setattr(target, 'getcode', code)
 
-class Queue(_Queue, metaclass = QueueMeta):
+class Queue(QueueBase, metaclass = QueueMeta):
     pass
 
-class LifoQueueMeta(EntityMeta):
+class LifoQueueMeta(ClassBuilder):
 
-    def __initialize_class__(cls):
-        if isinstance(cast(_Queue, cls).get_nowait, Missing):
-            code, method =  mkgetnowait(fifo = False)
-            setattr(cls, 'get_nowait', method)
-            setattr(cls, 'get_nowaitcode', code)
-        super().__initialize_class__()
+    def __build_class__(cls, target, attr):
+        if isinstance(target, LifoQueue) and attr == 'get':
+            code, method =  mkget(fifo = False)
+            setattr(target, 'get', method)
+            setattr(target, 'getcode', code)
 
-class LifoQueue(_Queue, metaclass = LifoQueueMeta):
+class LifoQueue(QueueBase, metaclass = LifoQueueMeta):
     pass

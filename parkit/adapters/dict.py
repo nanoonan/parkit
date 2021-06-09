@@ -1,4 +1,4 @@
-# pylint: disable = broad-except, not-callable, unused-import
+# pylint: disable = broad-except, not-callable, unused-import, no-self-use
 import collections.abc
 import logging
 import pickle
@@ -14,8 +14,11 @@ import parkit.storage.threadlocal as thread
 
 from parkit.adapters.sized import Sized
 from parkit.storage.context import transaction_context
-from parkit.storage.entitymeta import EntityMeta
-from parkit.storage.missing import Missing
+from parkit.storage.entitymeta import (
+    ClassBuilder,
+    EntityMeta,
+    Missing
+)
 from parkit.utility import compile_function
 
 logger = logging.getLogger(__name__)
@@ -64,26 +67,26 @@ def method(self) -> Iterator[Union[Any, Tuple[Any, Any]], None, None]:
         code, insert, glbs = globals()
     ))
 
-class DictMeta(EntityMeta):
+class DictMeta(ClassBuilder):
 
-    def __initialize_class__(cls):
-        if isinstance(cast(Dict, cls).__iter__, Missing):
-            code, method = mkiter(keys = True, values = False)
-            setattr(cls, '__iter__', method)
-            setattr(cls, '__iter__code', code)
-        if isinstance(cast(Dict, cls).keys, Missing):
-            code, method = mkiter(keys = True, values = False)
-            setattr(cls, 'keys', method)
-            setattr(cls, 'keyscode', code)
-        if isinstance(cast(Dict, cls).values, Missing):
-            code, method = mkiter(keys = False, values = True)
-            setattr(cls, 'values', method)
-            setattr(cls, 'valuescode', code)
-        if isinstance(cast(Dict, cls).items, Missing):
-            code, method = mkiter(keys = True, values = True)
-            setattr(cls, 'items', method)
-            setattr(cls, 'itemscode', code)
-        super().__initialize_class__()
+    def __build_class__(cls, target, attr):
+        if target == Dict:
+            if attr == '__iter__':
+                code, method = mkiter(keys = True, values = False)
+                setattr(target, '__iter__', method)
+                setattr(target, '__iter__code', code)
+            elif attr == 'keys':
+                code, method = mkiter(keys = True, values = False)
+                setattr(target, 'keys', method)
+                setattr(target, 'keyscode', code)
+            elif attr == 'values':
+                code, method = mkiter(keys = False, values = True)
+                setattr(target, 'values', method)
+                setattr(target, 'valuescode', code)
+            elif attr == 'items':
+                code, method = mkiter(keys = True, values = True)
+                setattr(target, 'items', method)
+                setattr(target, 'itemscode', code)
 
 class Dict(Sized, metaclass = DictMeta):
 

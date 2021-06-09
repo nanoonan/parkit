@@ -60,18 +60,24 @@ class Object(Entity, metaclass = EntityMeta):
             anonymous = not bool(path)
         )
 
+    #
+    # anonymous objects weakly referenced on foreign sites
+    #
+
     def __setstate__(self, from_wire: Tuple[str, str, str]):
         super().__setstate__(from_wire)
         if self.anonymous and envexists(constants.ANONYMOUS_SCOPE_FLAG_ENVNAME):
-            add_scope_entry(
-                self.uuid,
-                self.site_uuid,
-                getenv(constants.PROCESS_UUID_ENVNAME, str)
-            )
+            if self.site_uuid == getenv(constants.ANONYMOUS_SCOPE_FLAG_ENVNAME, str):
+                add_scope_entry(
+                    self.uuid,
+                    self.site_uuid,
+                    getenv(constants.PROCESS_UUID_ENVNAME, str)
+                )
 
     def __getstate__(self) -> Tuple[str, str, str]:
         if self.anonymous and envexists(constants.ANONYMOUS_SCOPE_FLAG_ENVNAME):
-            add_scope_entry(self.uuid, self.site_uuid)
+            if self.site_uuid == getenv(constants.ANONYMOUS_SCOPE_FLAG_ENVNAME, str):
+                add_scope_entry(self.uuid, self.site_uuid)
         return super().__getstate__()
 
     def __getattr__(
@@ -79,7 +85,6 @@ class Object(Entity, metaclass = EntityMeta):
         key: str
     ) -> Any:
         if key == '_Entity__def' or key in self._Entity__def:
-            print(self._Entity__def)
             raise AttributeError()
         key_bytes = b''.join([
             self._Entity__uuidbytes,

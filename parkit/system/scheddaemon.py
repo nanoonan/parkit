@@ -2,22 +2,32 @@
 import logging
 import os
 import time
+import typing
 
 from typing import (
-    Dict, Optional, Tuple
+    cast, Optional, Tuple
 )
 
 import daemoniker
 
 import parkit.constants as constants
 
+from parkit.adapters.dict import Dict
 from parkit.adapters.scheduler import Scheduler
-from parkit.adapaters.task import Task
-from parkit.cluster.manage import create_pid_filepath
+from parkit.adapters.task import Task
+from parkit.cluster import (
+    create_pid_filepath,
+    terminate_node
+)
 from parkit.exceptions import ObjectNotFoundError
 from parkit.storage.namespace import Namespace
+from parkit.storage.site import (
+    get_site_uuid,
+    import_site
+)
+from parkit.system.pool import acquire_daemon_lock
 from parkit.utility import (
-    create_string_digest,
+    getenv,
     polling_loop
 )
 
@@ -48,11 +58,21 @@ if __name__ == '__main__':
             if is_parent:
                 pass
 
-        # storage_path = get_storage_path()
-        # assert storage_path is not None
-        # assert cluster_uid == create_string_digest(storage_path)
+        storage_path = getenv(constants.CLUSTER_STORAGE_PATH_ENVNAME, str)
+        site_uuid = getenv(constants.CLUSTER_SITE_UUID_ENVNAME, str)
+        import_site(storage_path, name = 'main')
+        assert get_site_uuid('main') == site_uuid
 
-        tasks: Dict[str, Tuple[Task, Dict[Scheduler, Optional[int]]]] = {}
+        pool_state = Dict(constants.POOL_STATE_DICT_PATH)
+
+        if not acquire_daemon_lock('scheduler', pool_state):
+            logger.info('scheduler failed to acquire lock...exiting (%s)', node_uid)
+            assert node_uid is not None and cluster_uid is not None
+            terminate_node(node_uid, cluster_uid)
+            while True:
+                time.sleep(1)
+
+        tasks: typing.Dict[str, Tuple[Task, typing.Dict[Scheduler, Optional[int]]]] = {}
 
         for _ in polling_loop(1):
             seen = set()
@@ -61,7 +81,7 @@ if __name__ == '__main__':
                 if descriptor['type'] == 'parkit.adapters.task.Task':
                     if descriptor['uuid'] not in tasks:
                         try:
-                            task = namespace[name]
+                            task = cast(Task, namespace[name])
                             tasks[task.uuid] = (task, {})
                             seen.add(task.uuid)
                         except KeyError:
@@ -70,11 +90,11 @@ if __name__ == '__main__':
                         seen.add(descriptor['uuid'])
             for uuid in set(tasks.keys()).difference(seen):
                 del tasks[uuid]
-            schedulers: Dict[Scheduler, Optional[int]]
+            schedulers: typing.Dict[Scheduler, Optional[int]]
             for task, schedulers in tasks.values():
                 try:
                     latest_schedulers = set(task.schedulers)
-                    known_schedulers = {scheduler for scheduler in schedulers.keys()}
+                    known_schedulers = set(schedulers.keys())
                     added = latest_schedulers.difference(known_schedulers)
                     removed = known_schedulers.difference(latest_schedulers)
                     for scheduler in removed:
@@ -90,8 +110,10 @@ if __name__ == '__main__':
                         run, pause_until = scheduler.check_schedule(now_ns)
                         schedulers[scheduler] = pause_until
                         if run:
-                            args, kwargs = task.get_args(scheduler)
-                            task.submit(args = args, kwargs = kwargs)
+                            request = task.get_args(scheduler)
+                            if request is not None:
+                                args, kwargs = request
+                                task.submit(args = args, kwargs = kwargs)
                         if pause_until is None:
                             task.unschedule(scheduler)
                 except ObjectNotFoundError:

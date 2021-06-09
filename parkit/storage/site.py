@@ -65,7 +65,9 @@ def current_site() -> Optional[str]:
         return site_map[thread.local.storage_path.site_uuid]
     return None
 
-def get_sites() -> List[str]:
+def get_sites(*, include_hidden: bool = False) -> List[str]:
+    if include_hidden:
+        return list(site_map.values())
     return [
         name for name in list(site_map.values()) \
         if not (name.startswith('__') and name.endswith('__'))

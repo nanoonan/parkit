@@ -2,24 +2,25 @@
 import logging
 
 from typing import (
-    Any, Iterator, Optional, Tuple
+    Iterator, Optional, Tuple
 )
 
 import orjson
 
 from parkit.storage.context import transaction_context
+from parkit.storage.entity import Entity
 from parkit.storage.environment import get_environment_threadsafe
 from parkit.typeddicts import Descriptor
 from parkit.utility import create_class
 
 logger = logging.getLogger(__name__)
 
-def load_object(
+def load_entity(
     site: str,
     storage_path: str,
     namespace: str,
     name: str
-) -> Optional[Any]:
+) -> Optional[Entity]:
     _, env, name_db, _, _, descriptor_db = get_environment_threadsafe(
         storage_path, namespace
     )
@@ -39,7 +40,7 @@ def load_object(
                         site = site
                     )
                 except AttributeError:
-                    return create_class('parkit.adapters.Object')(
+                    return create_class('parkit.storage.Entity')(
                         '/'.join([namespace, name]), type_check = False,
                         site = site
                     )
@@ -93,14 +94,14 @@ def name_iter(
                 if not cursor.next():
                     break
 
-def object_iter(
+def entity_iter(
     site: str,
     storage_path: str,
     namespace: str,
     /, *,
     include_hidden: bool = False
-) -> Iterator[Any]:
+) -> Iterator[Entity]:
     for name in name_iter(storage_path, namespace, include_hidden = include_hidden):
-        obj = load_object(site, storage_path, namespace, name)
-        if obj is not None:
-            yield obj
+        entity = load_entity(site, storage_path, namespace, name)
+        if entity is not None:
+            yield entity

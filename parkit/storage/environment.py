@@ -92,6 +92,7 @@ def get_environment_threadsafe(
                     env_path, subdir = True, create = create,
                     writemap = profile['LMDB_WRITE_MAP'],
                     metasync = profile['LMDB_METASYNC'],
+                    map_size = profile['LMDB_INITIAL_MAP_SIZE'],
                     map_async = profile['LMDB_MAP_ASYNC'],
                     max_dbs = profile['LMDB_MAX_DBS'],
                     max_spare_txns = profile['LMDB_MAX_SPARE_TXNS'],
@@ -120,7 +121,6 @@ def get_environment_threadsafe(
                 )
                 databases[id(attribute_db)] = attribute_db
 
-                created = False
                 try:
                     txn = None
                     txn = env.begin(write = True, buffers = False)
@@ -131,7 +131,6 @@ def get_environment_threadsafe(
                             key = constants.ENVIRONMENT_UUID_KEY.encode('utf-8'),
                             value = env_uuid.encode('utf-8')
                         )
-                        created = True
                     else:
                         env_uuid = env_uuid.decode('utf-8')
                     txn.commit()
@@ -139,10 +138,6 @@ def get_environment_threadsafe(
                     if txn:
                         txn.abort()
                     raise TransactionError() from exc
-
-                if created:
-                    with filelock.FileLock(getenv(constants.GLOBAL_FILE_LOCK_PATH_ENVNAME, str)):
-                        env.set_mapsize(profile['LMDB_INITIAL_MAP_SIZE'])
 
                 environments[namespace_key] = \
                 (env_uuid, env, name_db, attribute_db, version_db, descriptor_db)

@@ -24,9 +24,10 @@ import parkit.constants as constants
 
 from parkit.adapters.array import Array
 from parkit.adapters.dict import Dict
+from parkit.adapters.object import Object
 from parkit.adapters.observer import ModuleObserver
 from parkit.adapters.queue import Queue
-from parkit.cluster.manage import terminate_node
+from parkit.cluster import terminate_node
 from parkit.storage.context import transaction_context
 from parkit.utility import (
     create_string_digest,
@@ -72,9 +73,10 @@ class AsyncTraces():
                 try:
                     if psutil.pid_exists(record['pid']):
                         proc = psutil.Process(record['pid'])
-                        cmdline = proc.cmdline()
-                        if record['node_uid'] in cmdline:
-                            running = True
+                        env = proc.environ()
+                        if constants.NODE_UID_ENVNAME in env:
+                            if env[constants.NODE_UID_ENVNAME] == record['node_uid']:
+                                running = True
                 except psutil.NoSuchProcess:
                     pass
                 if not running:
@@ -128,7 +130,7 @@ class AsyncTraces():
             if terminate:
                 terminate_node(
                     record['node_uid'],
-                    self._traces.storage_path
+                    self._traces.site_uuid
                 )
 
         def __str__(self) -> str:
@@ -190,7 +192,7 @@ error: {6}
     def count(self) -> int:
         return len(self._traces)
 
-class Function(Dict):
+class Process(Object):
 
     _target_function: Optional[Callable[..., Any]] = None
 
@@ -205,7 +207,9 @@ class Function(Dict):
         site: Optional[str] = None
     ):
         namespace, _ = resolve_path(path)
-        assert namespace == constants.TASK_NAMESPACE
+
+        if namespace != constants.TASK_NAMESPACE:
+            raise ValueError()
 
         if target:
             module = inspect.getmodule(target)
@@ -240,20 +244,20 @@ class Function(Dict):
                         if not self.__latest or self.__latest[-1] != digest:
                             self.__latest.append(digest)
 
-        def on_init(created: bool):
-            if created:
+        def on_init(create: bool):
+            if create:
                 self.__traces = Array('/'.join([
                     constants.TASK_NAMESPACE,
                     '__{0}__'.format(str(uuid.uuid4()))
-                ]))
+                ]), site = site)
                 self.__latest = Array('/'.join([
                     constants.TASK_NAMESPACE,
                     '__{0}__'.format(str(uuid.uuid4()))
-                ]))
+                ]), site = site)
                 self.__code = Dict('/'.join([
                     constants.TASK_NAMESPACE,
                     '__{0}__'.format(str(uuid.uuid4()))
-                ]))
+                ]), site = site)
                 load_target()
             else:
                 with transaction_context(self._Entity__env, write = True):
@@ -262,7 +266,7 @@ class Function(Dict):
         super().__init__(
             path,
             create = create, bind = bind,
-            on_init = on_init,
+            on_init = on_init, versioned = False,
             metadata = metadata, site = site
         )
 
@@ -323,9 +327,9 @@ class Function(Dict):
         args: Optional[Tuple[Any, ...]] = None,
         kwargs: Optional[typing.Dict[str, Any]] = None
     ) -> AsyncTraces.AsyncTrace:
-        process_queue = Queue(constants.TASK_QUEUE_PATH)
+        process_queue = Queue(constants.TASK_QUEUE_PATH, site = self.site_uuid)
         try:
-            setenv(constants.ANONYMOUS_SCOPE_FLAG_ENVNAME, 'True')
+            setenv(constants.ANONYMOUS_SCOPE_FLAG_ENVNAME, self.site_uuid)
             with transaction_context(self._Entity__env, write = True):
                 trace_index = len(self.__traces)
                 self.__traces.append(dict(
@@ -339,7 +343,7 @@ class Function(Dict):
                     pid = None,
                     node_uid = None
                 ))
-                process_queue.put_nowait((self, trace_index, args, kwargs))
+                process_queue.put((self, trace_index, args, kwargs))
                 return AsyncTraces.AsyncTrace(self.__traces, trace_index)
         finally:
             setenv(constants.ANONYMOUS_SCOPE_FLAG_ENVNAME, None)
@@ -350,7 +354,7 @@ class Function(Dict):
                 if record['status'] == 'running':
                     terminate_node(
                         record['node_uid'],
-                        self.storage_path
+                        self.site_uuid
                     )
             self.__traces.drop()
             self.__code.drop()

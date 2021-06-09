@@ -27,7 +27,7 @@ from parkit.storage.database import (
 )
 from parkit.storage.entitymeta import EntityMeta
 from parkit.storage.environment import get_environment_threadsafe
-from parkit.storage.namespace import Namespace
+
 from parkit.storage.site import (
     get_site_name,
     get_site_uuid
@@ -51,7 +51,8 @@ class Entity(metaclass = EntityMeta):
     __slots__ = {
         '__env', '__encname', '__namespace', '__namedb',
         '__descdb', '__versdb', '__attrdb', '__userdb',
-        '__uuidbytes', '__vers', '__siteuuid', '__anon'
+        '__uuidbytes', '__vers', '__siteuuid', '__anon',
+        '__creat'
     }
 
     def __init__(
@@ -69,14 +70,12 @@ class Entity(metaclass = EntityMeta):
         metadata: Optional[Dict[str, Any]] = None,
         site: Optional[str] = None
     ):
-        assert namespace and name
+        super().__init__()
 
-        # Map task namespace to root namespace
+        self.__creat = False
 
-        if namespace == constants.TASK_NAMESPACE:
-            namespace = constants.ROOT_NAMESPACE
-
-        assert site or thread.local.storage_path
+        if not namespace or not name:
+            raise ValueError()
 
         if not create and not bind:
             raise ValueError()
@@ -118,14 +117,18 @@ class Entity(metaclass = EntityMeta):
             if on_init:
                 on_init(False)
         elif create:
-            with transaction_context(self.__env, write = True):
-                self.__create_lmdb(
-                    db_properties if db_properties else [],
-                    anonymous, versioned,
-                    metadata if metadata else {}
-                )
-                if on_init:
-                    on_init(True)
+            try:
+                self.__creat = True
+                with transaction_context(self.__env, write = True):
+                    self.__create_lmdb(
+                        db_properties if db_properties else [],
+                        anonymous, versioned,
+                        metadata if metadata else {}
+                    )
+                    if on_init:
+                        on_init(True)
+            finally:
+                self.__creat = False
         else:
             raise ObjectNotFoundError()
 
@@ -149,6 +152,7 @@ class Entity(metaclass = EntityMeta):
 
     def __setstate__(self, from_wire: Tuple[str, str, str]):
         self.__siteuuid, self.__namespace, name = from_wire
+        self.__creat = False
         self.__encname = name.encode('utf-8')
         _, self.__env, self.__namedb, self.__attrdb, self.__versdb, self.__descdb = \
         get_environment_threadsafe(
@@ -158,6 +162,8 @@ class Entity(metaclass = EntityMeta):
         self.__userdb = []
         with transaction_context(self.__env, write = False) as (txn, _, _):
             self.__uuidbytes = txn.get(key = self.__encname, db = self.__namedb)
+            self.__uuidbytes = bytes(self.__uuidbytes) \
+            if isinstance(self.__uuidbytes, memoryview) else self.__uuidbytes
             if self.__uuidbytes is None:
                 raise ObjectNotFoundError()
             result = txn.get(key = self.__uuidbytes, db = self.__descdb)
@@ -243,7 +249,7 @@ class Entity(metaclass = EntityMeta):
         self.__anon = descriptor['anonymous']
 
     def __increment_version(self, cursors: thread.CursorDict):
-        if not self.__vers:
+        if not self.__vers or self.__creat:
             return
         cursor = cursors[self.__versdb]
         if cursor.set_key(self.__uuidbytes):
@@ -312,8 +318,8 @@ class Entity(metaclass = EntityMeta):
         return self.descriptor['created']
 
     @property
-    def namespace(self) -> Namespace:
-        return Namespace(self.__namespace, site = get_site_name(self.__siteuuid))
+    def namespace(self) -> str:
+        return self.__namespace
 
     @property
     def name(self) -> str:

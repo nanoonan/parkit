@@ -1,5 +1,6 @@
 # pylint: disable = protected-access
 import logging
+import os
 import uuid
 
 from typing import (
@@ -10,23 +11,40 @@ import parkit.constants as constants
 import parkit.storage.threadlocal as thread
 
 from parkit.adapters.dict import Dict
-from parkit.cluster.manage import (
+from parkit.cluster import (
     scan_nodes,
     launch_node,
     terminate_all_nodes
 )
 from parkit.exceptions import SiteNotSpecifiedError
+from parkit.storage.context import transaction_context
 from parkit.storage.site import (
     get_site_name,
     get_site_uuid
 )
 from parkit.storage.threadlocal import StoragePath
-from parkit.utility import (
-    create_string_digest,
-    getenv
-)
+from parkit.system.pidtable import get_pidtable_snapshot
+from parkit.utility import getenv
 
 logger = logging.getLogger(__name__)
+
+def acquire_daemon_lock(daemon_type: str, pool_state: Dict):
+    snapshot = get_pidtable_snapshot()
+    with transaction_context(pool_state._Entity__env, write = True):
+        if daemon_type not in pool_state:
+            pool_state[daemon_type] = (
+                os.getpid(),
+                getenv(constants.PROCESS_UUID_ENVNAME, str)
+            )
+            return True
+        daemon_pid, daemon_uuid = pool_state[daemon_type]
+        if daemon_pid in snapshot and snapshot[daemon_pid][1] == daemon_uuid:
+            return False
+        pool_state[daemon_type] = (
+            os.getpid(),
+            getenv(constants.PROCESS_UUID_ENVNAME, str)
+        )
+        return True
 
 class Pool():
 
@@ -63,24 +81,24 @@ class Pool():
 
     @property
     def nodes(self) -> List[str]:
-        storage_path = StoragePath(site_uuid = self._site_uuid).path
-        return scan_nodes(storage_path)
+        return scan_nodes(self._site_uuid)
 
     @property
     def started(self) -> bool:
-        storage_path = StoragePath(site_uuid = self._site_uuid).path
-        return len(scan_nodes(storage_path)) > 0
+        return len(scan_nodes(self._site_uuid)) > 0
 
     def start(self):
-        return
         storage_path = StoragePath(site_uuid = self._site_uuid).path
-        if 'monitor' not in [node_uid.split('-')[0] for node_uid in scan_nodes(storage_path)]:
+        if 'monitor' not in [node_uid.split('-')[0] for node_uid in scan_nodes(self._site_uuid)]:
             launch_node(
-                'monitor-{0}'.format(create_string_digest(str(uuid.uuid4()))),
-                'parkit.cluster.monitordaemon',
-                storage_path
+                'monitor-{0}'.format(str(uuid.uuid4())),
+                'parkit.system.monitordaemon',
+                self._site_uuid,
+                {
+                    constants.CLUSTER_STORAGE_PATH_ENVNAME: storage_path,
+                    constants.CLUSTER_SITE_UUID_ENVNAME: self._site_uuid
+                }
             )
 
     def stop(self):
-        storage_path = StoragePath(site_uuid = self._site_uuid).path
-        terminate_all_nodes(storage_path)
+        terminate_all_nodes(self._site_uuid)

@@ -9,13 +9,13 @@ from typing import (
 import parkit.constants as constants
 
 from parkit.adapters.dict import Dict
-from parkit.adapters.function import Function
+from parkit.adapters.process import Process
 from parkit.adapters.scheduler import Scheduler
 from parkit.storage.context import transaction_context
 
 logger = logging.getLogger(__name__)
 
-class Task(Function):
+class Task(Process):
 
     def __init__(
         self,
@@ -44,7 +44,7 @@ class Task(Function):
             self.__schedulers = Dict('/'.join([
                 constants.TASK_NAMESPACE,
                 '__{0}__'.format(str(uuid.uuid4()))
-            ]))
+            ]), site = site)
 
     @property
     def schedulers(self) -> Iterator[Scheduler]:
@@ -99,7 +99,8 @@ def task(
     name: Optional[str] = None,
     qualify_name: bool = False,
     metadata: Optional[typing.Dict[str, Any]] = None,
-    default_sync: Optional[bool] = None
+    default_sync: Optional[bool] = None,
+    site: Optional[str] = None
 ) -> Union[Task, Callable[[Callable[..., Any]], Task]]:
 
     def setup(name, target):
@@ -111,7 +112,8 @@ def task(
         return Task(
             '/'.join([constants.TASK_NAMESPACE, name]), target = target,
             create = True, bind = True,
-            default_sync = default_sync, metadata = metadata
+            default_sync = default_sync, metadata = metadata,
+            site = site
         )
 
     target = None
@@ -125,15 +127,19 @@ def task(
 
     return decorator
 
-def bind_task(name: str):
-    return Task('/'.join([constants.TASK_NAMESPACE, name]))
+def bind_task(
+    name: str,
+    site: Optional[str] = None
+):
+    return Task('/'.join([constants.TASK_NAMESPACE, name]), site = site)
 
 def create_task(
     target: Callable[..., Any],
     /, *,
     name: Optional[str] = None,
     qualify_name: bool = False,
-    metadata: Optional[typing.Dict[str, Any]] = None
+    metadata: Optional[typing.Dict[str, Any]] = None,
+    site: Optional[str] = None
 ) -> Task:
     if not name:
         if qualify_name:
@@ -143,5 +149,5 @@ def create_task(
     return Task(
         '/'.join([constants.TASK_NAMESPACE, name]),
         target = target, create = True, bind = False,
-        metadata = metadata
+        metadata = metadata, site = site
     )

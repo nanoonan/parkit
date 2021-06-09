@@ -1,7 +1,6 @@
 # pylint: disable = invalid-name, broad-except, protected-access
 import logging
 import os
-import platform
 import queue
 import time
 import uuid
@@ -11,17 +10,18 @@ import daemoniker
 import parkit.constants as constants
 
 from parkit.adapters.queue import Queue
-from parkit.cluster.manage import (
+from parkit.cluster import (
     create_pid_filepath,
     terminate_node
 )
 from parkit.exceptions import ObjectNotFoundError
-from parkit.functions import bind_symbol
-from parkit.pidtable import set_pid_entry
-from parkit.storage.transaction import transaction
-
+from parkit.storage.context import transaction_context
+from parkit.storage.site import (
+    get_site_uuid,
+    import_site
+)
+from parkit.system.pidtable import set_pid_entry
 from parkit.utility import (
-    create_string_digest,
     getenv,
     polling_loop,
     setenv
@@ -53,15 +53,10 @@ if __name__ == '__main__':
             if is_parent:
                 pass
 
-        if platform.system() == 'Windows':
-            os.environ['__PARKIT_DAEMON__'] = 'True'
-            if '__INVOKE_DAEMON__' in os.environ:
-                del os.environ['__INVOKE_DAEMON__']
-
-        # storage_path = get_storage_path()
-        # assert storage_path is not None
-        # assert cluster_uid == create_string_digest(storage_path)
-        storage_path = None
+        storage_path = getenv(constants.CLUSTER_STORAGE_PATH_ENVNAME, str)
+        site_uuid = getenv(constants.CLUSTER_SITE_UUID_ENVNAME, str)
+        import_site(storage_path, name = 'main')
+        assert get_site_uuid('main') == site_uuid
 
         task_queue = Queue(constants.TASK_QUEUE_PATH)
 
@@ -74,12 +69,12 @@ if __name__ == '__main__':
             while True:
                 try:
                     if len(termination_queue):
-                        _ = termination_queue.get_nowait()
+                        _ = termination_queue.get()
                         logger.info('terminating worker pid = %i uuid = %s', os.getpid(), node_uid)
-                        assert node_uid is not None
+                        assert node_uid is not None and cluster_uid is not None
                         terminate_node(
                             node_uid,
-                            storage_path
+                            cluster_uid
                         )
                         while True:
                             time.sleep(1)
@@ -87,9 +82,10 @@ if __name__ == '__main__':
                     pass
                 try:
                     if len(task_queue):
-                        setenv(constants.ANONYMOUS_SCOPE_FLAG_ENVNAME, 'True')
-                        with transaction(constants.TASK_NAMESPACE):
-                            task, trace_index, args, kwargs = task_queue.get_nowait()
+                        setenv(constants.ANONYMOUS_SCOPE_FLAG_ENVNAME, site_uuid)
+                        with transaction_context(task_queue._Entity__env, write = True):
+                            task, trace_index, args, kwargs = task_queue.get()
+                            assert task._Entity__env == task_queue._Entity__env
                             record = task._Function__traces[trace_index]
                             if record['status'] == 'submitted':
                                 record['pid'] = os.getpid()
@@ -117,7 +113,7 @@ if __name__ == '__main__':
                     exc_value = exc
                 finally:
                     try:
-                        with transaction(constants.TASK_NAMESPACE):
+                        with transaction_context(task_queue._Entity__env, write = True):
                             record = task._Function__traces[trace_index]
                             record['result'] = result
                             record['error'] = exc_value

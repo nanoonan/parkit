@@ -9,3 +9,5 @@ from parkit.storage.transaction import (
 	snapshot,
 	transaction
 )
+
+from parkit.storage.wait import wait

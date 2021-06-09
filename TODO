@@ -1,10 +1,10 @@
 0.0.9
-- smoke tests
-- review pylint disables (storage)
-- remove polling from queue
-- tasks iterator
-- disable scope entry across sites (query if in write tx)
-- set namespace size not working
+- feature freeze
+- smoke tests (add File)
+- simple docs
 
 0.0.10
-- add Stream class
+- unsupported ops File class
+- site imports for pool processes
+- set namespace size stored in settings (allow for changing namespace maxsize)
+- cleanup metaprogramming?
