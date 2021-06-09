@@ -17,7 +17,6 @@ DEFAULT_POOL_SIZE: int = min(max(4, multiprocessing.cpu_count()), 8)
 DEFAULT_MONITOR_POLLING_INTERVAL: float = 5.
 DEFAULT_WORKER_POLLING_INTERVAL: float = 0.05
 DEFAULT_ADAPTER_POLLING_INTERVAL: float = 0.025
-DEFAULT_RESTARTER_POLLING_INTERVAL: float = 300.
 
 PROCESS_TERMINATION_TIMEOUT_ENVNAME: str = 'PARKIT_PROCESS_TERMINATION_TIMEOUT'
 POOL_SIZE_ENVNAME: str = 'PARKIT_POOL_SIZE'
@@ -61,6 +60,19 @@ LMDB_PROFILES: Profiles = dict(
 		'LMDB_MEMINIT': False,
 		'LMDB_MAX_SPARE_TXNS': multiprocessing.cpu_count(),
 		'LMDB_MAX_READERS': 64
+	},
+	memory = {
+		'LMDB_INITIAL_MAP_SIZE': 1073741824,
+		'LMDB_WRITE_MAP': True,
+		'LMDB_METASYNC': False,
+		'LMDB_MAP_ASYNC': True,
+		'LMDB_MAX_DBS': 65536,
+		'LMDB_READONLY': False,
+		'LMDB_SYNC': False,
+		'LMDB_READAHEAD': False,
+		'LMDB_MEMINIT': False,
+		'LMDB_MAX_SPARE_TXNS': multiprocessing.cpu_count(),
+		'LMDB_MAX_READERS': 64
 	}
 )
 
@@ -69,6 +81,7 @@ ENVIRONMENT_UUID_KEY: str = '__uuid__'
 ROOT_NAMESPACE: str = ''
 DEFAULT_NAMESPACE: str = 'default'
 TASK_NAMESPACE: str = 'task'
+MEMORY_NAMESPACE: str = 'memory'
 
 SCOPE_TABLE_NAME: str = '__scope_table__'
 

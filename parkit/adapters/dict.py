@@ -63,30 +63,22 @@ def method(self) -> Iterator[Union[Any, Tuple[Any, Any]], None, None]:
                 if self.decode_value else data_cursor.value()
             )
         """
-    return (code.format(insert), compile_function(
-        code, insert, glbs = globals()
-    ))
+    return compile_function(
+        code.format(insert), glbs = globals()
+    )
 
 class DictMeta(ClassBuilder):
 
     def __build_class__(cls, target, attr):
         if target == Dict:
             if attr == '__iter__':
-                code, method = mkiter(keys = True, values = False)
-                setattr(target, '__iter__', method)
-                setattr(target, '__iter__code', code)
+                setattr(target, '__iter__', mkiter(keys = True, values = False))
             elif attr == 'keys':
-                code, method = mkiter(keys = True, values = False)
-                setattr(target, 'keys', method)
-                setattr(target, 'keyscode', code)
+                setattr(target, 'keys', mkiter(keys = True, values = False))
             elif attr == 'values':
-                code, method = mkiter(keys = False, values = True)
-                setattr(target, 'values', method)
-                setattr(target, 'valuescode', code)
+                setattr(target, 'values', mkiter(keys = False, values = True))
             elif attr == 'items':
-                code, method = mkiter(keys = True, values = True)
-                setattr(target, 'items', method)
-                setattr(target, 'itemscode', code)
+                setattr(target, 'items', mkiter(keys = True, values = True))
 
 class Dict(Sized, metaclass = DictMeta):
 

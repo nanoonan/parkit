@@ -22,29 +22,39 @@ logger = logging.getLogger(__name__)
 
 def mkget(fifo: bool = True) -> Tuple[str, Callable[..., Any]]:
     code = """
-def method(self):
+def method(self, metadata):
     try:
         txn, cursors, changed, implicit = \
-        thread.local.context.get(self._Entity__env, write = True)
+        thread.local.context.get(self._Entity__env, write = not metadata)
+
         cursor = cursors[self._Entity__userdb[0]]
+
         data = meta = None
         if {0}:
             key = cursor.key()
-            data = cursor.pop(key)
-            if data is not None and self.get_metadata:
-                meta = txn.pop(key, db = self._Entity__userdb[1])
+            if metadata:
+                meta = txn.get(key = key, db = self._Entity__userdb[1]) if self.get_metadata else False
+            else:
+                data = cursor.pop(key = key)
+                if self.get_metadata:
+                    meta = txn.pop(key = key, db = self._Entity__userdb[1])
         if implicit:
-            if data is not None:
+            if not metadata and data is not None:
                 self._Entity__increment_version(cursors)
             txn.commit()
-        elif data is not None:
+        elif not metadata and data is not None:
             changed.add(self)
     except BaseException as exc:
         self._Entity__abort(exc, txn, implicit)
     finally:
         if implicit and cursor:
             cursor.close()
-    if data is None:
+    if metadata:
+        if meta is None:
+            raise queue.Empty()
+        else:
+            return pickle.loads(meta) if self.get_metadata else None
+    elif data is None:
         raise queue.Empty()
     return (self.decode_value(data, pickle.loads(meta)) if self.get_metadata else self.decode_value(data)) \
     if self.decode_value else data
@@ -54,9 +64,9 @@ def method(self):
     """.strip() if fifo else """
     cursor.last()
     """.strip()
-    return (code.format(insert), compile_function(
-        code, insert, glbs = globals()
-    ))
+    return compile_function(
+        code.format(insert), glbs = globals(), defaults = (False,)
+    )
 
 class QueueBase(Sized):
 
@@ -114,6 +124,7 @@ class QueueBase(Sized):
         try:
             txn, cursors, changed, implicit = \
             thread.local.context.get(self._Entity__env, write = True)
+
             cursor = cursors[self._Entity__userdb[0]]
 
             if self.__maxsize_cached != math.inf and \
@@ -155,9 +166,7 @@ class QueueMeta(ClassBuilder):
 
     def __build_class__(cls, target, attr):
         if target == Queue and attr == 'get':
-            code, method =  mkget(fifo = True)
-            setattr(target, 'get', method)
-            setattr(target, 'getcode', code)
+            setattr(target, 'get', mkget(fifo = True))
 
 class Queue(QueueBase, metaclass = QueueMeta):
     pass
@@ -166,9 +175,7 @@ class LifoQueueMeta(ClassBuilder):
 
     def __build_class__(cls, target, attr):
         if isinstance(target, LifoQueue) and attr == 'get':
-            code, method =  mkget(fifo = False)
-            setattr(target, 'get', method)
-            setattr(target, 'getcode', code)
+            setattr(target, 'get', mkget(fifo = False))
 
 class LifoQueue(QueueBase, metaclass = LifoQueueMeta):
     pass

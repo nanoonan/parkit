@@ -86,7 +86,10 @@ def get_environment_threadsafe(
                     *namespace.replace('.', '/').split('/')
                 )
 
-                profile = get_lmdb_profiles()['default']
+                if namespace.split('/')[0] == constants.MEMORY_NAMESPACE:
+                    profile = get_lmdb_profiles()['memory']
+                else:
+                    profile = get_lmdb_profiles()['default']
 
                 env = lmdb.open(
                     env_path, subdir = True, create = create,

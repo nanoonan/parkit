@@ -92,9 +92,9 @@ def method(
         raise ValueError()
     return result[1]
     """.strip()
-    return (code.format(insert), compile_function(
-        code, insert, glbs = globals()
-    ))
+    return compile_function(
+        code.format(insert), glbs = globals()
+    )
 
 def mkiter(reverse: bool = False) -> Tuple[str, Callable[..., Iterator[Any]]]:
     code = """
@@ -147,30 +147,22 @@ def method(
             if not cursor.next():
                 return
     """.strip()
-    return (code.format(insert0, insert1, insert2), compile_function(
-        code, insert0, insert1, insert2, glbs = globals()
-    ))
+    return compile_function(
+        code.format(insert0, insert1, insert2), glbs = globals()
+    )
 
 class ArrayMeta(ClassBuilder):
 
     def __build_class__(cls, target, attr):
         if target == Array:
             if attr == '__contains__':
-                code, method = mkcontains(return_bool = True)
-                setattr(target, '__contains__', method)
-                setattr(target, '__contains__code', code)
+                setattr(target, '__contains__', mkcontains(return_bool = True))
             elif attr == 'index':
-                code, method = mkcontains(return_bool = False)
-                setattr(target, 'index', method)
-                setattr(target, 'indexcode', code)
+                setattr(target, 'index', mkcontains(return_bool = False))
             elif attr == '__iter__':
-                code, method = mkiter(reverse = False)
-                setattr(target, '__iter__', method)
-                setattr(target, '__iter__code', code)
+                setattr(target, '__iter__', mkiter(reverse = False))
             elif attr == '__reversed__':
-                code, method = mkiter(reverse = True)
-                setattr(target, '__reversed__', method)
-                setattr(target, '__reversed__code', code)
+                setattr(target, '__reversed__', mkiter(reverse = True))
 
 class Array(Sized, metaclass = ArrayMeta):
 

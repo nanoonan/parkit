@@ -37,13 +37,17 @@ class Timer():
 
 def compile_function(
     code: str,
-    *args: str,
-    glbs: Dict[str, Any]
+    /, *,
+    glbs: Dict[str, Any],
+    name: Optional[str] = None,
+    defaults: Tuple[Any, ...] = ()
 ) -> Callable[..., Any]:
-    module_ast = ast.parse(code.format(*args))
+    module_ast = ast.parse(code)
     module_code = compile(module_ast, '__dynamic__', 'exec')
     function_code = [c__ for c__ in module_code.co_consts if isinstance(c__, types.CodeType)][0]
-    return types.FunctionType(function_code, glbs)
+    if name is None:
+        name = str(uuid.uuid4())
+    return types.FunctionType(function_code, glbs, name, defaults)
 
 def get_memory_size(target: Any) -> int:
     if isinstance(target, (type, types.ModuleType, types.FunctionType)):
@@ -117,6 +121,11 @@ def resolve_path(path: Optional[str]) -> Tuple[str, str]:
     if not path:
         return (
             constants.DEFAULT_NAMESPACE,
+            ''.join(['__', str(uuid.uuid4()), '__'])
+        )
+    elif path == constants.MEMORY_NAMESPACE:
+        return (
+            constants.MEMORY_NAMESPACE,
             ''.join(['__', str(uuid.uuid4()), '__'])
         )
     segments = [segment for segment in path.split('/') if len(segment)]

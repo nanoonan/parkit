@@ -67,9 +67,3 @@ if not envexists(constants.ADAPTER_POLLING_INTERVAL_ENVNAME):
         constants.ADAPTER_POLLING_INTERVAL_ENVNAME,
         str(constants.DEFAULT_ADAPTER_POLLING_INTERVAL)
     )
-
-if not envexists(constants.RESTARTER_POLLING_INTERVAL_ENVNAME):
-    setenv(
-        constants.RESTARTER_POLLING_INTERVAL_ENVNAME,
-        str(constants.DEFAULT_RESTARTER_POLLING_INTERVAL)
-    )

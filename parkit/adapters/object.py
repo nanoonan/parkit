@@ -57,7 +57,7 @@ class Object(Entity, metaclass = EntityMeta):
             create = create, bind = bind, versioned = versioned,
             type_check = type_check, metadata = metadata,
             site = site, on_init = on_init,
-            anonymous = not bool(path)
+            anonymous = not bool(path) or path == constants.MEMORY_NAMESPACE
         )
 
     #

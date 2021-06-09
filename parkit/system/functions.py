@@ -80,25 +80,31 @@ def gc(*, site: Optional[str] = None, all_sites: bool = False):
     def garbage_collect(site: Optional[str]):
         logger.info('garbage collector started on pid %i', os.getpid())
         active_scopes = {uuid for _, (_, uuid) in get_pidtable_snapshot().items()}
-        namespace = Namespace(constants.DEFAULT_NAMESPACE, site = site)
-        orphans = []
-        for name, descriptor in namespace.descriptors(include_hidden = True):
-            if descriptor['anonymous']:
-                if descriptor['origin'] not in active_scopes:
-                    if not check_scope(
-                        descriptor['uuid'],
-                        namespace.site_uuid,
-                        active_scopes
-                    ):
-                        orphans.append(name)
-        for name in orphans:
-            time.sleep(0)
-            try:
-                obj = namespace[name]
-                obj.drop()
-                logger.info('garbage collected %s', name)
-            except KeyError:
-                continue
+
+        for namespace in [
+            Namespace(constants.DEFAULT_NAMESPACE, site = site),
+            Namespace(constants.MEMORY_NAMESPACE, site = site)
+        ]:
+            logger.info('garbage collecting %s', namespace.path)
+            orphans = []
+            for name, descriptor in namespace.descriptors(include_hidden = True):
+                if descriptor['anonymous']:
+                    if descriptor['origin'] not in active_scopes:
+                        if not check_scope(
+                            descriptor['uuid'],
+                            namespace.site_uuid,
+                            active_scopes
+                        ):
+                            orphans.append(name)
+            for name in orphans:
+                time.sleep(0)
+                try:
+                    obj = namespace[name]
+                    obj.drop()
+                    logger.info('garbage collected %s', name)
+                except KeyError:
+                    continue
+
     if all_sites:
         for name in get_sites():
             garbage_collect(name)
