@@ -48,6 +48,7 @@ module_observer = ModuleObserver()
 class AsyncTraces(EntityWrapper):
 
     def __init__(self, traces: Array):
+        super().__init__()
         self._traces = traces
 
     @property
@@ -61,6 +62,7 @@ class AsyncTraces(EntityWrapper):
             traces: Array,
             trace_index: int
         ):
+            super().__init__()
             self._traces = traces
             self._trace_index = trace_index
 
@@ -70,15 +72,15 @@ class AsyncTraces(EntityWrapper):
 
         @property
         def record(self) -> typing.Dict[str, Any]:
-            self._update_status()
-            return self._traces[self._trace_index]
+            record = self._traces[self._trace_index]
+            record['status'] = self._get_status()
+            return record
 
         @property
         def status(self) -> str:
-            self._update_status()
-            return self._traces[self._trace_index]['status']
+            return self._get_status()
 
-        def _update_status(self):
+        def _get_status(self) -> str:
             record = self._traces[self._trace_index]
             if record['status'] == 'running':
                 running = False
@@ -88,12 +90,11 @@ class AsyncTraces(EntityWrapper):
                         env = proc.environ()
                         if constants.NODE_UID_ENVNAME in env:
                             if env[constants.NODE_UID_ENVNAME] == record['node_uid']:
-                                running = True
+                                running = proc.is_running()
                 except psutil.NoSuchProcess:
                     pass
-                if not running:
-                    record['status'] = 'crashed'
-                    self._traces[self._trace_index] = record
+                return 'crashed' if not running else record['status']
+            return record['status']
 
         @property
         def result(self) -> Optional[Any]:

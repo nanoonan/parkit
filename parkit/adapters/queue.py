@@ -20,7 +20,7 @@ from parkit.utility import compile_function
 
 logger = logging.getLogger(__name__)
 
-def mkget(fifo: bool = True) -> Tuple[str, Callable[..., Any]]:
+def mkget(fifo: bool = True) -> Callable[..., Any]:
     code = """
 def method(self, metadata):
     try:

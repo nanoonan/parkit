@@ -11,6 +11,3 @@ The *parkit* package provides some basic Python classes that support multiproces
 ```
 python -m pip install parkit
 ```
-
-# Documentation
-https://parkit.readthedocs.io/en/latest/

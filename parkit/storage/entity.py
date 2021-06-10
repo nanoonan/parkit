@@ -1,7 +1,8 @@
-# pylint: disable = c-extension-no-member, broad-except, no-member, too-many-instance-attributes, protected-access
+# pylint: disable = c-extension-no-member, broad-except, no-member, too-many-instance-attributes, protected-access, too-few-public-methods
 import datetime
 import logging
 import struct
+import typing
 import uuid
 
 from typing import (
@@ -463,6 +464,7 @@ class Entity(metaclass = EntityMeta):
             if implicit and cursor:
                 cursor.close()
 
+@typing.runtime_checkable
 class EntityWrapper(Protocol):
 
     @property

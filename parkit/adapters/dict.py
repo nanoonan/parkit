@@ -28,7 +28,7 @@ unspecified_class = types.new_class('__unspecified__')
 def mkiter(
     keys: bool = True,
     values: bool = False
-) -> Tuple[str, Callable[..., Iterator[Union[Any, Tuple[Any, Any]]]]]:
+) -> Callable[..., Iterator[Union[Any, Tuple[Any, Any]]]]:
     code = """
 def method(self) -> Iterator[Union[Any, Tuple[Any, Any]], None, None]:
     with transaction_context(self._Entity__env, write = False) as (_, cursors, _):

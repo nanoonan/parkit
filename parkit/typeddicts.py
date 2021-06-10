@@ -31,7 +31,8 @@ Profile = TypedDict(
 
 Profiles = TypedDict(
     'Profiles', {
-        'default': Profile
+        'default': Profile,
+        'memory': Profile
     }
 )
 

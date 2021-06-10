@@ -1,8 +1,13 @@
-0.0.9
-- get metadata only from array, queue, dict
-
 0.0.10
 - unsupported ops File class
 - site imports for pool processes
 - set namespace size stored in settings (allow for changing namespace maxsize)
 - performance
+- array resize
+- get metadata only from array, dict
+- mmap buffer replace bytearray in File
+- monitor use pidtable, reduce runtime cost
+- add priority queue subclass queue
+- scheduler heartbeat constant
+- auto-garbage collect on process start
+- add trace.wait()

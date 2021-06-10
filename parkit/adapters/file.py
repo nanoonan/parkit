@@ -100,7 +100,7 @@ class File(Object):
         thread.local.context.push(self._Entity__env, True, write, True)
         self.__closed = False
         if 'w' not in self.__sorted_mode and not self.empty:
-            self.__buffer = self._load__buffer(binary = 'b' in self.__sorted_mode)
+            self.__buffer = self._load_buffer(binary = 'b' in self.__sorted_mode)
         else:
             self.__buffer = bytearray() if 'b' in self.__sorted_mode else io.StringIO()
         if isinstance(self.__buffer, (bytearray, memoryview)):
@@ -111,7 +111,7 @@ class File(Object):
         try:
             if self.writable():
                 assert isinstance(self.__buffer, (bytearray, io.StringIO))
-                self._save__buffer(self.__buffer)
+                self._save_buffer(self.__buffer)
         finally:
             self.__pos = 0
             self.__buffer = None
@@ -120,19 +120,31 @@ class File(Object):
 
     @property
     def content(self) -> Optional[Union[bytearray, bytes, memoryview, str]]:
-        if not self.readable() or not self.__closed:
+        if not self.__closed:
             raise ValueError()
         need_copy = thread.local.context.depth(self._Entity__env) == 0
         with transaction_context(self._Entity__env, write = False):
             if self.empty:
                 return None
-            data = self._load__buffer(binary = 'b' in self.__sorted_mode)
+            data = self._load_buffer(binary = 'b' in self.__sorted_mode)
             if isinstance(data, memoryview):
                 if need_copy:
                     return bytes(data)
             elif isinstance(data, io.StringIO):
                 return data.getvalue()
             return data
+
+    @content.setter
+    def content(self, data: Union[bytearray, bytes, memoryview, str]):
+        if not self.__closed:
+            raise ValueError()
+        with transaction_context(self._Entity__env, write = True):
+            if isinstance(data, str):
+                self._save_buffer(io.StringIO(data))
+            elif isinstance(data, bytes):
+                self._save_buffer(memoryview(data))
+            else:
+                self._save_buffer(data)
 
     def encoding(self) -> str:
         return 'utf-8'
@@ -234,14 +246,14 @@ class File(Object):
         for line in lines:
             self.write(line)
 
-    def _save__buffer(self, buffer: Union[bytearray, io.StringIO]):
+    def _save_buffer(self, buffer: Union[bytearray, memoryview, io.StringIO]):
         try:
             txn, cursors, changed, implicit = \
             thread.local.context.get(self._Entity__env, write = True)
             assert not implicit
             cursor = cursors[self._Entity__userdb[0]]
             key = struct.pack('@N', 0)
-            if isinstance(buffer, bytearray):
+            if isinstance(buffer, (bytearray, memoryview)):
                 assert cursor.put(key = key, value = buffer, append = False)
                 self.__size = len(buffer)
             else:
@@ -252,7 +264,7 @@ class File(Object):
         except BaseException as exc:
             self._Entity__abort(exc, txn, implicit)
 
-    def _load__buffer(self, binary: bool) -> Union[bytearray, memoryview, io.StringIO]:
+    def _load_buffer(self, binary: bool) -> Union[bytearray, memoryview, io.StringIO]:
         try:
             txn, cursors, _, implicit = \
             thread.local.context.get(self._Entity__env, write = False)

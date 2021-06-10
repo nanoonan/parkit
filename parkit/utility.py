@@ -123,7 +123,7 @@ def resolve_path(path: Optional[str]) -> Tuple[str, str]:
             constants.DEFAULT_NAMESPACE,
             ''.join(['__', str(uuid.uuid4()), '__'])
         )
-    elif path == constants.MEMORY_NAMESPACE:
+    if path == constants.MEMORY_NAMESPACE:
         return (
             constants.MEMORY_NAMESPACE,
             ''.join(['__', str(uuid.uuid4()), '__'])

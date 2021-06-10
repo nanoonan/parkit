@@ -44,7 +44,7 @@ class ReversibleGetSlice():
             start = self._start, stop = self._stop
         )
 
-def mkcontains(return_bool: bool = True) -> Tuple[str, Callable[..., Union[int, bool]]]:
+def mkcontains(return_bool: bool = True) -> Callable[..., Union[int, bool]]:
     code = """
 def method(
     self,
@@ -96,7 +96,7 @@ def method(
         code.format(insert), glbs = globals()
     )
 
-def mkiter(reverse: bool = False) -> Tuple[str, Callable[..., Iterator[Any]]]:
+def mkiter(reverse: bool = False) -> Callable[..., Iterator[Any]]:
     code = """
 def method(
     self,
