@@ -11,3 +11,4 @@
 - scheduler heartbeat constant
 - auto-garbage collect on process start
 - add trace.wait()
+- replace watchdog

@@ -14,9 +14,6 @@ theme:
 
 nav:
     - Home: index.md
-    - Getting Started: gettingstarted.md
-    - Recipes: recipes.md
-    - API Reference: api.md
 
 markdown_extensions:
   - meta
