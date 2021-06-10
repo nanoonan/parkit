@@ -306,6 +306,7 @@ class Process(Object):
             'reloaded %s.%s on pid %i',
             module_name, function_name, os.getpid()
         )
+        if
         return getattr(module, function_name)._target_function
 
     def invoke(
