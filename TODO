@@ -11,3 +11,4 @@
 - auto garbage collect on process start
 - add trace.wait()
 - replace watchdog?
+- support default site envvar for importing @task in modules
