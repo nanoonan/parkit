@@ -261,9 +261,6 @@ class Array(Sized, metaclass = ArrayMeta):
                 changed.add(self)
         except BaseException as exc:
             self._Entity__abort(exc, txn, implicit)
-        finally:
-            if implicit and cursor:
-                cursor.close()
 
     def append(
         self,
@@ -292,9 +289,6 @@ class Array(Sized, metaclass = ArrayMeta):
                 changed.add(self)
         except BaseException as exc:
             self._Entity__abort(exc, txn, implicit)
-        finally:
-            if implicit and cursor:
-                cursor.close()
 
     def extend(
         self,
@@ -332,9 +326,6 @@ class Array(Sized, metaclass = ArrayMeta):
                 changed.add(self)
         except BaseException as exc:
             self._Entity__abort(exc, txn, implicit)
-        finally:
-            if implicit and cursor:
-                cursor.close()
 
     def __bool__(self) -> bool:
         return len(self) > 0

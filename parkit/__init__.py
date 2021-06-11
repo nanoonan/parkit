@@ -19,6 +19,7 @@ from parkit.adapters import (
 )
 
 from parkit.exceptions import (
+	ContextError,
 	ObjectExistsError,
 	ObjectNotFoundError,
 	SiteNotFoundError,
@@ -33,7 +34,6 @@ from parkit.storage import (
 	set_site,
 	snapshot,
 	transaction,
-	transaction_context,
 	wait
 )
 
@@ -49,6 +49,11 @@ from parkit.system import (
 	syslog
 )
 
-from parkit.utility import polling_loop
+from parkit.utility import (
+	envexists,
+	getenv,
+	polling_loop,
+	setenv
+)
 
 import parkit.postinit

@@ -97,7 +97,7 @@ class File(Object):
 
     def __enter__(self):
         write = not ('r' in self.__sorted_mode and '+' not in self.__sorted_mode)
-        thread.local.context.push(self._Entity__env, True, write, True)
+        thread.local.context.push(self._Entity__env, write)
         self.__closed = False
         if 'w' not in self.__sorted_mode and not self.empty:
             self.__buffer = self._load_buffer(binary = 'b' in self.__sorted_mode)
@@ -122,7 +122,7 @@ class File(Object):
     def content(self) -> Optional[Union[bytearray, bytes, memoryview, str]]:
         if not self.__closed:
             raise ValueError()
-        need_copy = thread.local.context.depth(self._Entity__env) == 0
+        need_copy = not bool(thread.local.context.stacks[self._Entity__env])
         with transaction_context(self._Entity__env, write = False):
             if self.empty:
                 return None

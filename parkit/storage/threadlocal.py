@@ -1,6 +1,5 @@
 # pylint: disable = too-few-public-methods, broad-except, protected-access
 import collections
-import functools
 import os
 import threading
 import logging
@@ -15,7 +14,6 @@ import parkit.constants as constants
 
 from parkit.exceptions import (
     SiteNotFoundError,
-    StoragePathError,
     TransactionError
 )
 
@@ -23,20 +21,6 @@ from parkit.storage.database import get_database_threadsafe
 from parkit.storage.environment import get_environment_threadsafe
 
 logger = logging.getLogger(__name__)
-
-@functools.lru_cache(None)
-def validate_storage_path(path: str) -> bool:
-    if os.path.exists(path):
-        if not os.path.isdir(path):
-            raise StoragePathError()
-    else:
-        try:
-            os.makedirs(path)
-        except FileExistsError:
-            pass
-        except OSError as exc:
-            raise StoragePathError() from exc
-    return True
 
 class StoragePath():
 
@@ -46,7 +30,6 @@ class StoragePath():
         assert path or site_uuid
         if path:
             path = os.path.abspath(path)
-            assert validate_storage_path(path)
             self._path = path
             if self._path not in StoragePath.sites:
                 site_uuid, _, _, _, _, _ = get_environment_threadsafe(
@@ -109,60 +92,47 @@ class ExplicitContext():
         self.write = write
         self.changed: Set[Any] = set()
         self.cursors = ExplicitCursorDict(transaction)
-        self.count = 0
-
-    def get(self) -> Tuple[lmdb.Transaction, CursorDict, Set[Any], bool]:
-        return (self.transaction, self.cursors, self.changed, False)
 
 class ContextStacks():
 
     def __init__(self):
-        self._stacks = collections.defaultdict(lambda: [])
-
-    def depth(self, env: lmdb.Environment) -> int:
-        return len(self._stacks[env])
+        self.stacks = collections.defaultdict(lambda: [])
 
     def get(
         self,
         env: lmdb.Environment,
         /, *,
-        write: bool = False
+        write: bool = False,
+        buffers: bool = True
     ) -> Tuple[lmdb.Transaction, CursorDict, Set[Any], bool]:
         try:
-            if not self._stacks[env] or write and not self._stacks[env][-1].write:
+            if not self.stacks[env] or write and not self.stacks[env][-1].write:
                 txn = env.begin(
-                    write = write, buffers = True, parent = None
+                    write = write, buffers = buffers, parent = None
                 )
                 return (txn, ImplicitCursorDict(txn), set(), True)
-            return self._stacks[env][-1].get()
+            return (
+                self.stacks[env][-1].transaction,
+                self.stacks[env][-1].cursors,
+                self.stacks[env][-1].changed,
+                False
+            )
         except lmdb.Error as exc:
             raise TransactionError() from exc
 
     def push(
         self,
         env: lmdb.Environment,
-        inherit: bool = True,
         write: bool = False,
         buffers: bool = True
     ):
         try:
-            if not write or (write and inherit):
-                if not self._stacks[env]:
-                    txn = env.begin(
-                        write = write, buffers = buffers,
-                        parent = None
-                    )
-                    self._stacks[env].append(ExplicitContext(txn, write))
-                    return
-                if not write or self._stacks[env][-1].write:
-                    self._stacks[env][-1].count += 1
-                    return
             txn = env.begin(
                 write = write, buffers = buffers,
-                parent = self._stacks[env][-1].transaction \
-                if self._stacks[env] and self._stacks[env][-1].write else None
+                parent = self.stacks[env][-1].transaction \
+                if self.stacks[env] and self.stacks[env][-1].write else None
             )
-            self._stacks[env].append(ExplicitContext(txn, write))
+            self.stacks[env].append(ExplicitContext(txn, write))
         except lmdb.Error as exc:
             raise TransactionError() from exc
 
@@ -171,30 +141,24 @@ class ContextStacks():
         env: lmdb.Environment,
         error: Optional[BaseException] = None
     ):
-        assert self._stacks[env]
-        if self._stacks[env][-1].count > 0:
-            self._stacks[env][-1].count -= 1
-        else:
-            try:
-                context = self._stacks[env][-1]
-                if not error:
-                    if context.write:
-                        for obj in context.changed:
-                            obj._Entity__increment_version(
-                                context.cursors
-                            )
-                        context.transaction.commit()
-                else:
-                    context.transaction.abort()
-            except BaseException as exc:
-                if not error:
-                    error = exc
-            finally:
-                self._stacks[env].pop()
-        if error:
-            if isinstance(error, lmdb.Error):
-                raise TransactionError() from error
-            raise error
+        try:
+            context = self.stacks[env][-1]
+            if not error:
+                if context.write:
+                    for obj in context.changed:
+                        obj._Entity__increment_version(context.cursors)
+                    for cursor in context.cursors.values():
+                        cursor.close()
+                    context.transaction.commit()
+            else:
+                for cursor in context.cursors.values():
+                    cursor.close()
+                context.transaction.abort()
+        except BaseException as exc:
+            context.transaction.abort()
+            raise exc from error
+        finally:
+            self.stacks[env].pop()
 
 class ThreadLocalVars(threading.local):
 

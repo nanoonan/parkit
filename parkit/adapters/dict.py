@@ -190,9 +190,6 @@ class Dict(Sized, metaclass = DictMeta):
                 txn.commit()
         except BaseException as exc:
             self._Entity__abort(exc, txn, implicit)
-        finally:
-            if implicit and cursor:
-                cursor.close()
         return default if not result else (
             (self.decode_value(data, meta) if self.get_metadata else self.decode_value(data)) \
             if self.decode_value else data
@@ -217,9 +214,6 @@ class Dict(Sized, metaclass = DictMeta):
                 txn.commit()
         except BaseException as exc:
             self._Entity__abort(exc, txn, implicit)
-        finally:
-            if implicit and cursor:
-                cursor.close()
         if not result:
             raise KeyError()
         return (
@@ -251,9 +245,6 @@ class Dict(Sized, metaclass = DictMeta):
                 changed.add(self)
         except BaseException as exc:
             self._Entity__abort(exc, txn, implicit)
-        finally:
-            if implicit and cursor:
-                cursor.close()
         if data is None and isinstance(default, unspecified_class):
             raise KeyError()
         if data is None:
@@ -411,9 +402,6 @@ class Dict(Sized, metaclass = DictMeta):
                 changed.add(self)
         except BaseException as exc:
             self._Entity__abort(exc, txn, implicit)
-        finally:
-            if implicit and cursor:
-                cursor.close()
 
     __iter__: Callable[..., Iterator[Union[Any, Tuple[Any, Any]]]] = Missing()
 

@@ -3,7 +3,7 @@ import typing
 import uuid
 
 from typing import (
-    Any, Callable, Iterator, Optional, Tuple, Union
+    Any, Callable, Iterator, List, Optional, Tuple, Union
 )
 
 import parkit.constants as constants
@@ -47,9 +47,11 @@ class Task(Process):
             ]), site = site)
 
     @property
-    def schedulers(self) -> Iterator[Scheduler]:
-        for key in self.__schedulers.keys():
-            yield self.__schedulers[key][0]
+    def schedulers(self) -> List[Scheduler]:
+        schedulers = []
+        for value in self.__schedulers.values():
+            schedulers.append(value[0])
+        return schedulers
 
     def get_args(self, scheduler: Scheduler) \
     -> Optional[Tuple[Tuple[Any, ...], typing.Dict[str, Any]]]:
@@ -148,6 +150,6 @@ def create_task(
             name = target.__name__
     return Task(
         '/'.join([constants.TASK_NAMESPACE, name]),
-        target = target, create = True, bind = False,
+        target = target, create = True, bind = True,
         metadata = metadata, site = site
     )

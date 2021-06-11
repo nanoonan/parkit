@@ -306,7 +306,9 @@ class Process(Object):
             'reloaded %s.%s on pid %i',
             module_name, function_name, os.getpid()
         )
-        return getattr(module, function_name)._target_function
+        if isinstance(getattr(module, function_name), Process):
+            return getattr(module, function_name)._target_function
+        return getattr(module, function_name)
 
     def invoke(
         self,

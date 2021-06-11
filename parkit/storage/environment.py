@@ -15,7 +15,10 @@ import lmdb
 
 import parkit.constants as constants
 
-from parkit.exceptions import TransactionError
+from parkit.exceptions import (
+    StoragePathError,
+    TransactionError
+)
 from parkit.profiles import get_lmdb_profiles
 from parkit.storage.database import databases
 from parkit.utility import getenv
@@ -83,8 +86,19 @@ def get_environment_threadsafe(
 
                 env_path = os.path.join(
                     storage_path,
-                    *namespace.replace('.', '/').split('/')
+                    *namespace.split('/')
                 )
+
+                if os.path.exists(env_path):
+                    if not os.path.isdir(env_path):
+                        raise StoragePathError()
+                else:
+                    try:
+                        os.makedirs(env_path)
+                    except FileExistsError:
+                        pass
+                    except OSError as exc:
+                        raise StoragePathError() from exc
 
                 if namespace.split('/')[0] == constants.MEMORY_NAMESPACE:
                     profile = get_lmdb_profiles()['memory']

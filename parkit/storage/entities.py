@@ -2,12 +2,16 @@
 import logging
 
 from typing import (
-    Iterator, Optional, Tuple
+    Any, Iterator, Optional, Tuple
 )
 
+import lmdb
 import orjson
 
-from parkit.storage.context import transaction_context
+from parkit.storage.context import (
+    InheritMode,
+    transaction_context
+)
 from parkit.storage.entity import Entity
 from parkit.storage.environment import get_environment_threadsafe
 from parkit.typeddicts import Descriptor
@@ -19,17 +23,25 @@ def load_entity(
     site: str,
     storage_path: str,
     namespace: str,
-    name: str
+    name: str,
+    /, *,
+    uuid: Optional[bytes] = None,
+    env: Optional[lmdb.Environment] = None,
+    descriptor_db: Optional[Any] = None
 ) -> Optional[Entity]:
-    _, env, name_db, _, _, descriptor_db = get_environment_threadsafe(
-        storage_path, namespace
-    )
-    with transaction_context(env, write = True) as (_, cursors, _):
-        cursor = cursors[name_db]
-        uuid = cursor.get(name.encode('utf-8'))
+    if uuid is None:
+        _, env, name_db, _, _, descriptor_db = get_environment_threadsafe(
+            storage_path, namespace
+        )
+    with transaction_context(
+        env, write = True, inherit = InheritMode.WriteExclusive
+    ) as (_, cursors, _):
+        if uuid is None:
+            cursor = cursors[name_db]
+            uuid = cursor.get(key = name.encode('utf-8'))
         if uuid is not None:
             cursor = cursors[descriptor_db]
-            data = cursor.get(uuid)
+            data = cursor.get(key = uuid)
             if data is not None:
                 descriptor = orjson.loads(
                     bytes(data) if isinstance(data, memoryview) else data
@@ -101,7 +113,22 @@ def entity_iter(
     /, *,
     include_hidden: bool = False
 ) -> Iterator[Entity]:
-    for name in name_iter(storage_path, namespace, include_hidden = include_hidden):
-        entity = load_entity(site, storage_path, namespace, name)
-        if entity is not None:
-            yield entity
+    _, env, name_db, _, _, descriptor_db = get_environment_threadsafe(storage_path, namespace)
+    with transaction_context(
+        env, write = True, inherit = InheritMode.WriteExclusive
+    ) as (_, cursors, _):
+        cursor = cursors[name_db]
+        if cursor.first():
+            while True:
+                key = cursor.key()
+                name = bytes(key).decode('utf-8') if isinstance(key, memoryview) else \
+                key.decode('utf-8')
+                if include_hidden or not (name.startswith('__') and name.endswith('__')):
+                    entity = load_entity(
+                        site, storage_path, namespace, name, uuid = cursor.value(),
+                        env = env, descriptor_db = descriptor_db
+                    )
+                    if entity is not None:
+                        yield entity
+                if not cursor.next():
+                    break

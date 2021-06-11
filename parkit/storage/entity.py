@@ -21,7 +21,10 @@ from parkit.exceptions import (
     SiteNotSpecifiedError,
     TransactionError
 )
-from parkit.storage.context import transaction_context
+from parkit.storage.context import (
+    InheritMode,
+    transaction_context
+)
 from parkit.storage.database import (
     get_database_threadsafe,
     open_database_threadsafe
@@ -199,11 +202,12 @@ class Entity(metaclass = EntityMeta):
         for dbuid, _ in descriptor['databases']:
             self.__userdb.append(get_database_threadsafe(dbuid))
         if any(db is None for db in self.__userdb):
-            with transaction_context(self.__env, write = True) as (txn, _, _):
+            with transaction_context(
+                self.__env, write = True, inherit = InheritMode.WriteExclusive
+            ) as (txn, _, _):
                 for index, (dbuid, properties) in enumerate(descriptor['databases']):
                     if not self.__userdb[index]:
-                        self.__userdb[index] = \
-                        open_database_threadsafe(
+                        self.__userdb[index] = open_database_threadsafe(
                             txn, self.__env, dbuid, properties, create = False
                         )
 

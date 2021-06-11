@@ -74,20 +74,23 @@ if __name__ == '__main__':
 
         tasks: typing.Dict[str, Tuple[Task, typing.Dict[Scheduler, Optional[int]]]] = {}
 
-        for _ in polling_loop(1):
+        for _ in polling_loop(getenv(constants.SCHEDULER_HEARTBEAT_INTERVAL_ENVNAME, float)):
             seen = set()
             namespace = Namespace(constants.TASK_NAMESPACE)
+            names = []
             for name, descriptor in namespace.descriptors():
                 if descriptor['type'] == 'parkit.adapters.task.Task':
                     if descriptor['uuid'] not in tasks:
-                        try:
-                            task = cast(Task, namespace[name])
-                            tasks[task.uuid] = (task, {})
-                            seen.add(task.uuid)
-                        except KeyError:
-                            continue
+                        names.append(name)
                     else:
                         seen.add(descriptor['uuid'])
+            for name in names:
+                try:
+                    task = cast(Task, namespace[name])
+                    tasks[task.uuid] = (task, {})
+                    seen.add(task.uuid)
+                except KeyError:
+                    continue
             for uuid in set(tasks.keys()).difference(seen):
                 del tasks[uuid]
             schedulers: typing.Dict[Scheduler, Optional[int]]

@@ -47,7 +47,7 @@ def method(self, metadata):
     except BaseException as exc:
         self._Entity__abort(exc, txn, implicit)
     finally:
-        if implicit and cursor:
+        if metadata and implicit and cursor:
             cursor.close()
     if metadata:
         if meta is None:
@@ -148,9 +148,6 @@ class QueueBase(Sized):
                 changed.add(self)
         except BaseException as exc:
             self._Entity__abort(exc, txn, implicit)
-        finally:
-            if implicit and cursor:
-                cursor.close()
 
     qsize: Callable[..., int] = Sized.__len__
 

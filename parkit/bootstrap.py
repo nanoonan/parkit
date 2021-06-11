@@ -56,6 +56,12 @@ if not envexists(constants.MONITOR_POLLING_INTERVAL_ENVNAME):
         str(constants.DEFAULT_MONITOR_POLLING_INTERVAL)
     )
 
+if not envexists(constants.SCHEDULER_HEARTBEAT_INTERVAL_ENVNAME):
+    setenv(
+        constants.SCHEDULER_HEARTBEAT_INTERVAL_ENVNAME,
+        str(constants.DEFAULT_SCHEDULER_HEARTBEAT_INTERVAL)
+    )
+
 if not envexists(constants.WORKER_POLLING_INTERVAL_ENVNAME):
     setenv(
         constants.WORKER_POLLING_INTERVAL_ENVNAME,

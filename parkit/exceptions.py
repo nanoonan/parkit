@@ -1,4 +1,7 @@
 
+class ContextError(RuntimeError):
+    pass
+
 class TransactionError(RuntimeError):
     pass
 
