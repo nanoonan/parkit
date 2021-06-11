@@ -83,6 +83,7 @@ ROOT_NAMESPACE: str = ''
 DEFAULT_NAMESPACE: str = 'default'
 TASK_NAMESPACE: str = 'task'
 MEMORY_NAMESPACE: str = 'memory'
+SCHEDULER_NAMESPACE: str = 'scheduler'
 
 SCOPE_TABLE_NAME: str = '__scope_table__'
 

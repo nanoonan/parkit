@@ -119,7 +119,7 @@ class File(Object):
             thread.local.context.pop(self._Entity__env, error)
 
     @property
-    def content(self) -> Optional[Union[bytearray, bytes, memoryview, str]]:
+    def content(self) -> Optional[Union[bytearray, memoryview, str]]:
         if not self.__closed:
             raise ValueError()
         need_copy = not bool(thread.local.context.stacks[self._Entity__env])
@@ -129,7 +129,7 @@ class File(Object):
             data = self._load_buffer(binary = 'b' in self.__sorted_mode)
             if isinstance(data, memoryview):
                 if need_copy:
-                    return bytes(data)
+                    return bytearray(data)
             elif isinstance(data, io.StringIO):
                 return data.getvalue()
             return data

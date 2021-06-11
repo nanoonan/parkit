@@ -217,7 +217,8 @@ class Process(Object):
         create: bool = True,
         bind: bool = True,
         metadata: Optional[typing.Dict[str, Any]] = None,
-        site: Optional[str] = None
+        site: Optional[str] = None,
+        on_init: Optional[Callable[[bool], None]] = None
     ):
         namespace, _ = resolve_path(path)
 
@@ -257,7 +258,7 @@ class Process(Object):
                         if not self.__latest or self.__latest[-1] != digest:
                             self.__latest.append(digest)
 
-        def on_init(create: bool):
+        def on_init_(create: bool):
             if create:
                 self.__traces = Array('/'.join([
                     constants.TASK_NAMESPACE,
@@ -275,11 +276,13 @@ class Process(Object):
             else:
                 with transaction_context(self._Entity__env, write = True):
                     load_target()
+            if on_init:
+                on_init(create)
 
         super().__init__(
             path,
             create = create, bind = bind,
-            on_init = on_init, versioned = False,
+            on_init = on_init_, versioned = False,
             metadata = metadata, site = site
         )
 

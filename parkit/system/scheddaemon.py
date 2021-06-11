@@ -1,12 +1,7 @@
-# pylint: disable = invalid-name, broad-except, protected-access
+# pylint: disable = invalid-name, broad-except
 import logging
 import os
 import time
-import typing
-
-from typing import (
-    cast, Optional, Tuple
-)
 
 import daemoniker
 
@@ -14,17 +9,15 @@ import parkit.constants as constants
 
 from parkit.adapters.dict import Dict
 from parkit.adapters.scheduler import Scheduler
-from parkit.adapters.task import Task
 from parkit.cluster import (
     create_pid_filepath,
     terminate_node
 )
-from parkit.exceptions import ObjectNotFoundError
-from parkit.storage.namespace import Namespace
 from parkit.storage.site import (
     get_site_uuid,
     import_site
 )
+from parkit.system.functions import directory
 from parkit.system.pool import acquire_daemon_lock
 from parkit.utility import (
     getenv,
@@ -72,55 +65,11 @@ if __name__ == '__main__':
             while True:
                 time.sleep(1)
 
-        tasks: typing.Dict[str, Tuple[Task, typing.Dict[Scheduler, Optional[int]]]] = {}
-
         for _ in polling_loop(getenv(constants.SCHEDULER_HEARTBEAT_INTERVAL_ENVNAME, float)):
-            seen = set()
-            namespace = Namespace(constants.TASK_NAMESPACE)
-            names = []
-            for name, descriptor in namespace.descriptors():
-                if descriptor['type'] == 'parkit.adapters.task.Task':
-                    if descriptor['uuid'] not in tasks:
-                        names.append(name)
-                    else:
-                        seen.add(descriptor['uuid'])
-            for name in names:
-                try:
-                    task = cast(Task, namespace[name])
-                    tasks[task.uuid] = (task, {})
-                    seen.add(task.uuid)
-                except KeyError:
-                    continue
-            for uuid in set(tasks.keys()).difference(seen):
-                del tasks[uuid]
-            schedulers: typing.Dict[Scheduler, Optional[int]]
-            for task, schedulers in tasks.values():
-                try:
-                    latest_schedulers = set(task.schedulers)
-                    known_schedulers = set(schedulers.keys())
-                    added = latest_schedulers.difference(known_schedulers)
-                    removed = known_schedulers.difference(latest_schedulers)
-                    for scheduler in removed:
-                        del schedulers[scheduler]
-                    for scheduler in added:
-                        schedulers[scheduler] = 0
-                    for scheduler, pause_until in schedulers.items():
-                        if pause_until is None:
-                            continue
-                        now_ns = time.time_ns()
-                        if now_ns < pause_until:
-                            continue
-                        run, pause_until = scheduler.check_schedule(now_ns)
-                        schedulers[scheduler] = pause_until
-                        if run:
-                            request = task.get_args(scheduler)
-                            if request is not None:
-                                args, kwargs = request
-                                task.submit(args = args, kwargs = kwargs)
-                        if pause_until is None:
-                            task.unschedule(scheduler)
-                except ObjectNotFoundError:
-                    continue
+            for scheduler in directory(constants.SCHEDULER_NAMESPACE):
+                if isinstance(scheduler, Scheduler):
+                    for task, args, kwargs in scheduler.scheduled:
+                        task.submit(args = args, kwargs = kwargs)
 
     except (SystemExit, KeyboardInterrupt, GeneratorExit):
         pass

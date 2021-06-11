@@ -28,9 +28,9 @@ unspecified_class = types.new_class('__unspecified__')
 def mkiter(
     keys: bool = True,
     values: bool = False
-) -> Callable[..., Iterator[Union[Any, Tuple[Any, Any]]]]:
+) -> Callable[..., Iterator[Any]]:
     code = """
-def method(self) -> Iterator[Union[Any, Tuple[Any, Any]], None, None]:
+def method(self) -> Iterator[Any]:
     with transaction_context(self._Entity__env, write = False) as (_, cursors, _):
         data_cursor = cursors[self._Entity__userdb[0]]
         meta_cursor = cursors[self._Entity__userdb[1]] if self.get_metadata else None
@@ -403,10 +403,10 @@ class Dict(Sized, metaclass = DictMeta):
         except BaseException as exc:
             self._Entity__abort(exc, txn, implicit)
 
-    __iter__: Callable[..., Iterator[Union[Any, Tuple[Any, Any]]]] = Missing()
+    __iter__: Callable[..., Iterator[Any]] = Missing()
 
-    keys: Callable[..., Iterator[Union[Any, Tuple[Any, Any]]]] = Missing()
+    keys: Callable[..., Iterator[Any]] = Missing()
 
-    values: Callable[..., Iterator[Union[Any, Tuple[Any, Any]]]] = Missing()
+    values: Callable[..., Iterator[Any]] = Missing()
 
-    items: Callable[..., Iterator[Union[Any, Tuple[Any, Any]]]] = Missing()
+    items: Callable[..., Iterator[Any]] = Missing()

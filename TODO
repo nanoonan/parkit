@@ -12,3 +12,6 @@
 - add trace.wait()
 - replace watchdog?
 - support default site envvar for importing @task in modules
+- add scheduler tests
+- @scheduler decorator for custom schedulers
+- file size for numpy array?
