@@ -59,7 +59,7 @@ def set_site(name: str):
         if name == site_name:
             thread.local.storage_path = StoragePath(site_uuid = site_uuid)
 
-def current_site() -> Optional[str]:
+def get_site() -> Optional[str]:
     if thread.local.storage_path:
         assert thread.local.storage_path.site_uuid in site_map
         return site_map[thread.local.storage_path.site_uuid]

@@ -25,7 +25,6 @@ from parkit.storage.site import (
 )
 from parkit.storage.threadlocal import StoragePath
 from parkit.system.pidtable import get_pidtable_snapshot
-from parkit.system.pool import Pool
 from parkit.utility import get_calling_modules
 
 logger = logging.getLogger(__name__)
@@ -34,9 +33,6 @@ class Directory(Namespace):
 
     def objects(self, /, *, include_hidden: bool = False) -> Iterator[Object]:
         return cast(Iterator[Object], self.entities(include_hidden = include_hidden))
-
-def pool(site: Optional[str] = None) -> Pool:
-    return Pool(site = site)
 
 def directories(
     site: Optional[str] = None,
@@ -68,18 +64,31 @@ def directory(
 ) -> Namespace:
     return Directory(path, site = site)
 
-def scope_table():
-    assert thread.local.storage_path
-    return dump_scope_table(thread.local.storage_path.site_uuid)
+def context_stack(obj: Optional[Entity] = None):
+    if obj is None:
+        return thread.local.context.stacks
+    contexts = []
+    for context in thread.local.context.stacks[obj._Entity__env]:
+        contexts.append(str(context))
+    return contexts
 
-def pid_table() -> Dict[int, Tuple[float, str]]:
+def scope_table(site_uuid: str) -> List[Tuple[str, str]]:
+    return dump_scope_table(site_uuid)
+
+def pid_table() -> Dict[int, Dict[str, Union[float, Optional[str]]]]:
     return get_pidtable_snapshot()
 
 def gc(*, site: Optional[str] = None, all_sites: bool = False):
 
     def garbage_collect(site: Optional[str]):
         logger.info('garbage collector started on pid %i', os.getpid())
-        active_scopes = {uuid for _, (_, uuid) in get_pidtable_snapshot().items()}
+
+        snapshot = get_pidtable_snapshot()
+
+        active_scopes = {
+            entry['process_uuid'] for entry in snapshot.values() \
+            if isinstance(entry['process_uuid'], str)
+        }
 
         for namespace in [
             Namespace(constants.DEFAULT_NAMESPACE, site = site),

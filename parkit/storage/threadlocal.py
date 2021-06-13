@@ -86,12 +86,19 @@ class ExplicitContext():
     def __init__(
         self,
         transaction: lmdb.Transaction,
-        write: bool
+        write: bool,
+        iterator: bool
     ):
         self.transaction = transaction
         self.write = write
+        self.iterator = iterator
         self.changed: Set[Any] = set()
         self.cursors = ExplicitCursorDict(transaction)
+
+    def __str__(self):
+        return 'tx: {0} write: {1} iterator: {2}'.format(
+            self.transaction, self.write, self.iterator
+        )
 
 class ContextStacks():
 
@@ -103,10 +110,13 @@ class ContextStacks():
         env: lmdb.Environment,
         /, *,
         write: bool = False,
-        buffers: bool = True
+        buffers: bool = True,
+        internal: bool = False,
     ) -> Tuple[lmdb.Transaction, CursorDict, Set[Any], bool]:
         try:
-            if not self.stacks[env] or write and not self.stacks[env][-1].write:
+            if not self.stacks[env] or \
+            write and not self.stacks[env][-1].write or \
+            internal and self.stacks[env][-1].iterator:
                 txn = env.begin(
                     write = write, buffers = buffers, parent = None
                 )
@@ -118,13 +128,15 @@ class ContextStacks():
                 False
             )
         except lmdb.Error as exc:
+            logger.exception('error while getting transaction')
             raise TransactionError() from exc
 
     def push(
         self,
         env: lmdb.Environment,
         write: bool = False,
-        buffers: bool = True
+        buffers: bool = True,
+        iterator: bool = False
     ):
         try:
             txn = env.begin(
@@ -132,8 +144,9 @@ class ContextStacks():
                 parent = self.stacks[env][-1].transaction \
                 if self.stacks[env] and self.stacks[env][-1].write else None
             )
-            self.stacks[env].append(ExplicitContext(txn, write))
+            self.stacks[env].append(ExplicitContext(txn, write, iterator))
         except lmdb.Error as exc:
+            logger.exception('error while popping transaction context')
             raise TransactionError() from exc
 
     def pop(
@@ -155,6 +168,7 @@ class ContextStacks():
                     cursor.close()
                 context.transaction.abort()
         except BaseException as exc:
+            logger.exception('error while popping transaction context')
             context.transaction.abort()
             raise exc from error
         finally:

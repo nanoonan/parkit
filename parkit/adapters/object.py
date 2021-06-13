@@ -42,8 +42,6 @@ class Object(Entity, metaclass = EntityMeta):
         self,
         path: Optional[str] = None,
         /, *,
-        create: bool = True,
-        bind: bool = True,
         versioned: bool = True,
         type_check: bool = True,
         metadata: Optional[typing.Dict[str, Any]] = None,
@@ -54,8 +52,7 @@ class Object(Entity, metaclass = EntityMeta):
         namespace, name = resolve_path(path)
         super().__init__(
             namespace, name, db_properties = db_properties,
-            create = create, bind = bind, versioned = versioned,
-            type_check = type_check, metadata = metadata,
+            versioned = versioned, type_check = type_check, metadata = metadata,
             site = site, on_init = on_init,
             anonymous = not bool(path) or path == constants.MEMORY_NAMESPACE
         )

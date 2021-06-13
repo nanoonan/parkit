@@ -26,7 +26,6 @@ def wait(*args):
     else:
         condition = lambda: True
     if not all(isinstance(arg, (Entity, EntityWrapper)) for arg in args):
-        print(isinstance(args[0], EntityWrapper))
         raise ValueError()
     args = [arg if isinstance(arg, Entity) else arg.entity for arg in args]
     if len(args) > 0:

@@ -9,6 +9,7 @@ import parkit.constants as constants
 
 from parkit.storage.context import transaction_context
 from parkit.storage.entity import Entity
+from parkit.storage.site import get_site_name
 
 logger = logging.getLogger(__name__)
 
@@ -17,8 +18,9 @@ scope_tables: Dict[str, Entity] = {}
 def get_scope_table(site_uuid: str) -> Any:
     if site_uuid not in scope_tables:
         entity = Entity(
-            constants.TASK_NAMESPACE, constants.SCOPE_TABLE_NAME,
-            db_properties = [{}]
+            constants.EXECUTION_NAMESPACE, constants.SCOPE_TABLE_NAME,
+            db_properties = [{}],
+            site = get_site_name(site_uuid)
         )
         scope_tables[site_uuid] = entity
         return entity

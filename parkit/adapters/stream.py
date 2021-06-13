@@ -18,8 +18,6 @@ class Stream(Queue):
         self,
         path: Optional[str] = None,
         /, *,
-        create: bool = True,
-        bind: bool = True,
         metadata: Optional[Dict[str, Any]] = None,
         maxsize: int = 0,
         site: Optional[str] = None,
@@ -32,17 +30,15 @@ class Stream(Queue):
                 on_init(create)
 
         super().__init__(
-            path,
-            create = create, bind = bind, on_init = _on_init,
+            path, on_init = _on_init,
             metadata = metadata, site = site, maxsize = maxsize
         )
 
     @property
     def closed(self):
-        with transaction_context(self._Entity__env, write = False):
-            if not self.__closed:
-                return False
-            return self.__len__() == 0
+        if not self.__closed:
+            return False
+        return self.__len__() == 0
 
     def close(self):
         if not self.__closed:

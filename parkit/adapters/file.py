@@ -34,8 +34,6 @@ class File(Object):
         path: Optional[str] = None,
         /, *,
         mode: Optional[str] = None,
-        create: bool = True,
-        bind: bool = True,
         metadata: Optional[Dict[str, Any]] = None,
         site: Optional[str] = None,
         on_init: Optional[Callable[[bool], None]] = None
@@ -43,21 +41,19 @@ class File(Object):
         def _on_init(create: bool):
             if create:
                 self.__size = 0
+            if mode:
+                sorted_mode = ''.join(sorted(mode))
+                if sorted_mode not in valid_modes:
+                    raise ValueError()
+                self.__sorted_mode = sorted_mode
             if on_init:
                 on_init(create)
 
         super().__init__(
             path, db_properties = [{'integerkey': True}],
-            create = create, bind = bind,
             metadata = metadata, site = site,
             on_init = _on_init
         )
-
-        if mode:
-            mode = ''.join(sorted(mode))
-            if mode not in valid_modes:
-                raise ValueError()
-            self.__sorted_mode = mode
 
     def __iter__(self) -> Iterator[Union[str, ByteString]]:
         raise io.UnsupportedOperation()
@@ -79,7 +75,7 @@ class File(Object):
     def empty(self) -> bool:
         try:
             txn, _, _, implicit = \
-            thread.local.context.get(self._Entity__env, write = False)
+            thread.local.context.get(self._Entity__env, write = False, internal = True)
             result = txn.stat(self._Entity__userdb[0])['entries']
             if implicit:
                 txn.commit()
@@ -117,6 +113,8 @@ class File(Object):
             self.__buffer = None
             self.__closed = True
             thread.local.context.pop(self._Entity__env, error)
+            if error is not None:
+                raise error
 
     @property
     def content(self) -> Optional[Union[bytearray, memoryview, str]]:
@@ -249,7 +247,7 @@ class File(Object):
     def _save_buffer(self, buffer: Union[bytearray, memoryview, io.StringIO]):
         try:
             txn, cursors, changed, implicit = \
-            thread.local.context.get(self._Entity__env, write = True)
+            thread.local.context.get(self._Entity__env, write = True, internal = True)
             assert not implicit
             cursor = cursors[self._Entity__userdb[0]]
             key = struct.pack('@N', 0)
@@ -267,7 +265,7 @@ class File(Object):
     def _load_buffer(self, binary: bool) -> Union[bytearray, memoryview, io.StringIO]:
         try:
             txn, cursors, _, implicit = \
-            thread.local.context.get(self._Entity__env, write = False)
+            thread.local.context.get(self._Entity__env, write = False, internal = True)
             assert not implicit
             cursor = cursors[self._Entity__userdb[0]]
             key = struct.pack('@N', 0)

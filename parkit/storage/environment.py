@@ -3,6 +3,7 @@ import atexit
 import functools
 import logging
 import os
+import struct
 import threading
 import uuid
 
@@ -25,9 +26,9 @@ from parkit.utility import getenv
 
 logger = logging.getLogger(__name__)
 
-environments_lock: threading.Lock = threading.Lock()
+environment_lock: threading.Lock = threading.Lock()
 
-environments: Dict[
+environment: Dict[
     str,
     Tuple[
         str, lmdb.Environment, lmdb._Database, lmdb._Database,
@@ -35,15 +36,17 @@ environments: Dict[
     ]
 ] = {}
 
-def close_environments_atexit():
-    with environments_lock:
-        for _, env, _, _, _, _ in environments.values():
+mapsize: Dict[str, int] = {}
+
+def close_environment_atexit():
+    with environment_lock:
+        for _, env, _, _, _, _ in environment.values():
             try:
                 env.close()
             except lmdb.Error:
                 logger.exception('close environment error')
 
-atexit.register(close_environments_atexit)
+atexit.register(close_environment_atexit)
 
 def make_namespace_key(storage_path: str, namespace: str) -> str:
     return ':'.join([storage_path, namespace.replace('.', '/')])
@@ -60,11 +63,27 @@ def set_namespace_size(
     storage_path: str,
     namespace: str
 ):
-    assert size > 0
     _, env, _, _, _, _ = get_environment_threadsafe(storage_path, namespace)
-    lock = filelock.FileLock(getenv(constants.GLOBAL_FILE_LOCK_PATH_ENVNAME, str))
-    with lock:
-        env.set_mapsize(size)
+    _, site_env, _, _, _, _ = get_environment_threadsafe(
+        storage_path, constants.ROOT_NAMESPACE
+    )
+    file_lock = filelock.FileLock(getenv(constants.GLOBAL_FILE_LOCK_PATH_ENVNAME, str))
+    with environment_lock:
+        with file_lock:
+            env.set_mapsize(size)
+            try:
+                txn = None
+                txn = site_env.begin(write = True, buffers = False)
+                assert txn.put(
+                    key = namespace.encode('utf-8'),
+                    value = struct.pack('@N', size)
+                )
+                txn.commit()
+            except BaseException as exc:
+                if txn:
+                    txn.abort()
+                raise TransactionError() from exc
+            mapsize[namespace] = size
 
 @functools.lru_cache(None)
 def get_environment_threadsafe(
@@ -78,11 +97,11 @@ def get_environment_threadsafe(
 ]:
     namespace_key = make_namespace_key(storage_path, namespace)
 
-    if namespace_key not in environments:
+    if namespace_key not in environment:
 
-        with environments_lock:
+        with environment_lock:
 
-            if namespace_key not in environments:
+            if namespace_key not in environment:
 
                 env_path = os.path.join(
                     storage_path,
@@ -109,7 +128,8 @@ def get_environment_threadsafe(
                     env_path, subdir = True, create = create,
                     writemap = profile['LMDB_WRITE_MAP'],
                     metasync = profile['LMDB_METASYNC'],
-                    map_size = profile['LMDB_INITIAL_MAP_SIZE'],
+                    map_size = profile['LMDB_INITIAL_MAP_SIZE'] \
+                    if namespace not in mapsize else mapsize[namespace],
                     map_async = profile['LMDB_MAP_ASYNC'],
                     max_dbs = profile['LMDB_MAX_DBS'],
                     max_spare_txns = profile['LMDB_MAX_SPARE_TXNS'],
@@ -121,22 +141,25 @@ def get_environment_threadsafe(
 
                 env.reader_check()
 
-                name_db = env.open_db(
-                    key = constants.NAME_DATABASE.encode('utf-8')
-                )
-                databases[id(name_db)] = name_db
-                version_db = env.open_db(
-                    key = constants.VERSION_DATABASE.encode('utf-8')
-                )
-                databases[id(version_db)] = version_db
-                descriptor_db = env.open_db(
-                    key = constants.DESCRIPTOR_DATABASE.encode('utf-8')
-                )
-                databases[id(descriptor_db)] = descriptor_db
-                attribute_db = env.open_db(
-                    key = constants.ATTRIBUTE_DATABASE.encode('utf-8')
-                )
-                databases[id(attribute_db)] = attribute_db
+                if namespace == constants.ROOT_NAMESPACE:
+                    name_db = version_db = descriptor_db = attribute_db = None
+                else:
+                    name_db = env.open_db(
+                        key = constants.NAME_DATABASE.encode('utf-8')
+                    )
+                    databases[id(name_db)] = name_db
+                    version_db = env.open_db(
+                        key = constants.VERSION_DATABASE.encode('utf-8')
+                    )
+                    databases[id(version_db)] = version_db
+                    descriptor_db = env.open_db(
+                        key = constants.DESCRIPTOR_DATABASE.encode('utf-8')
+                    )
+                    databases[id(descriptor_db)] = descriptor_db
+                    attribute_db = env.open_db(
+                        key = constants.ATTRIBUTE_DATABASE.encode('utf-8')
+                    )
+                    databases[id(attribute_db)] = attribute_db
 
                 try:
                     txn = None
@@ -150,13 +173,28 @@ def get_environment_threadsafe(
                         )
                     else:
                         env_uuid = env_uuid.decode('utf-8')
-                    txn.commit()
+                    if namespace == constants.ROOT_NAMESPACE:
+                        cursor = txn.cursor()
+                        cursor.first()
+                        while True:
+                            if cursor.key().decode('utf-8') not in [
+                                constants.ENVIRONMENT_UUID_KEY,
+                                constants.ATTRIBUTE_DATABASE,
+                                constants.VERSION_DATABASE,
+                                constants.DESCRIPTOR_DATABASE,
+                                constants.NAME_DATABASE
+                            ]:
+                                mapsize[cursor.key().decode('utf-8')] = \
+                                struct.unpack('@N', cursor.value())[0]
+                            if not cursor.next():
+                                break
+                        txn.commit()
                 except BaseException as exc:
                     if txn:
                         txn.abort()
                     raise TransactionError() from exc
 
-                environments[namespace_key] = \
+                environment[namespace_key] = \
                 (env_uuid, env, name_db, attribute_db, version_db, descriptor_db)
 
-    return environments[namespace_key]
+    return environment[namespace_key]

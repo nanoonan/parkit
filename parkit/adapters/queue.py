@@ -25,7 +25,7 @@ def mkget(fifo: bool = True) -> Callable[..., Any]:
 def method(self, metadata):
     try:
         txn, cursors, changed, implicit = \
-        thread.local.context.get(self._Entity__env, write = not metadata)
+        thread.local.context.get(self._Entity__env, write = not metadata, internal = True)
 
         cursor = cursors[self._Entity__userdb[0]]
 
@@ -84,8 +84,6 @@ class QueueBase(Sized):
         self,
         path: Optional[str] = None,
         /, *,
-        create: bool = True,
-        bind: bool = True,
         metadata: Optional[Dict[str, Any]] = None,
         maxsize: int = 0,
         site: Optional[str] = None,
@@ -100,8 +98,7 @@ class QueueBase(Sized):
         super().__init__(
             path,
             db_properties = [{'integerkey': True}, {'integerkey': True}],
-            create = create, bind = bind, on_init = _on_init,
-            metadata = metadata, site = site
+            on_init = _on_init, metadata = metadata, site = site
         )
 
         self.__maxsize_cached = self.__maxsize
@@ -123,7 +120,7 @@ class QueueBase(Sized):
         item_bytes = self.encode_value(item) if self.encode_value else item
         try:
             txn, cursors, changed, implicit = \
-            thread.local.context.get(self._Entity__env, write = True)
+            thread.local.context.get(self._Entity__env, write = True, internal = True)
 
             cursor = cursors[self._Entity__userdb[0]]
 

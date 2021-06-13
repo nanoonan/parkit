@@ -1,17 +1,17 @@
 0.0.11
 - unsupported ops File class
 - site imports for pool processes
-- set namespace size stored in settings (allow for changing namespace maxsize)
 - performance
 - array resize
 - get metadata only from array, dict
-- mmap buffer replace bytearray in File
-- monitor use pidtable, reduce runtime cost
-- add priority queue
-- auto garbage collect on process start
-- add trace.wait()
 - replace watchdog?
-- support default site envvar for importing @task in modules
 - add scheduler tests
-- @scheduler decorator for custom schedulers
+- auto-clean duplicate monitor or scheduler instances
+- typed dicts for pid table, scope table
 - file size for numpy array?
+- stream iterator seems off by one
+- mmap replace bytearray in File
+- garbage collector daemon?
+- garbage collect executions when task no longer exists
+- rename observer fileobserver
+- don't use database inside File

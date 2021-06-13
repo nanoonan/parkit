@@ -1,12 +1,16 @@
 import logging
+import mmap
 
 from typing import (
     Any, Dict, Iterator, Optional, Tuple
 )
 
+import cardinality
+
 import parkit.storage.threadlocal as thread
 
 from parkit.exceptions import SiteNotSpecifiedError
+from parkit.storage.context import transaction_context
 from parkit.storage.entities import (
     descriptor_iter,
     load_entity,
@@ -15,6 +19,7 @@ from parkit.storage.entities import (
 )
 from parkit.storage.entity import Entity
 from parkit.storage.environment import (
+    get_environment_threadsafe,
     get_namespace_size,
     set_namespace_size
 )
@@ -67,7 +72,13 @@ class Namespace():
 
     @maxsize.setter
     def maxsize(self, value: int):
-        assert value > self.maxsize
+        cursize = self.maxsize
+        if value == cursize:
+            return
+        if value < self.maxsize:
+            raise ValueError()
+        if value % mmap.PAGESIZE != 0:
+            raise ValueError()
         storage_path = StoragePath(site_uuid = self._site_uuid).path
         set_namespace_size(value, storage_path, self._path)
 
@@ -82,46 +93,48 @@ class Namespace():
         name: str
     ) -> Entity:
         storage_path = StoragePath(site_uuid = self._site_uuid).path
-        obj = load_entity(get_site_name(self._site_uuid), storage_path, self._path, name)
-        if obj is not None:
-            return obj
-        raise KeyError()
+        _, env, name_db, _, _, descriptor_db = get_environment_threadsafe(storage_path, self._path)
+        with transaction_context(env, write = False, iterator = True) as (_, cursors, _):
+            obj = load_entity(
+                name_db, descriptor_db, cursors, get_site_name(self._site_uuid),
+                self._path, name = name
+            )
+            if obj is not None:
+                return obj
+            raise KeyError()
 
-    def metadata(self, /, *, include_hidden: bool = False) \
-    -> Iterator[Tuple[str, Dict[str, Any]]]:
-        storage_path = StoragePath(site_uuid = self._site_uuid).path
-        for name, descriptor in descriptor_iter(
-            storage_path, self._path, include_hidden = include_hidden
-        ):
+    def metadata(self, /, *, include_hidden: bool = False) -> Iterator[Tuple[str, Dict[str, Any]]]:
+        for name, descriptor in self.descriptors(include_hidden = include_hidden):
             yield (name, descriptor['metadata'])
 
-    def descriptors(self, /, *, include_hidden: bool = False) \
-    -> Iterator[Tuple[str, Descriptor]]:
+    def descriptors(self, /, *, include_hidden: bool = False) -> Iterator[Tuple[str, Descriptor]]:
         storage_path = StoragePath(site_uuid = self._site_uuid).path
-        return descriptor_iter(
-            storage_path, self._path, include_hidden = include_hidden
-        )
+        _, env, name_db, _, _, descriptor_db = get_environment_threadsafe(storage_path, self._path)
+        with transaction_context(env, write = False, iterator = True) as (_, cursors, _):
+            return descriptor_iter(name_db, descriptor_db, cursors, include_hidden = include_hidden)
 
     def names(self, /, *, include_hidden: bool = False) -> Iterator[str]:
         storage_path = StoragePath(site_uuid = self._site_uuid).path
-        return name_iter(storage_path, self._path, include_hidden = include_hidden)
+        _, env, name_db, _, _, _ = get_environment_threadsafe(storage_path, self._path)
+        with transaction_context(env, write = False, iterator = True) as (_, cursors, _):
+            return name_iter(name_db, cursors, include_hidden = include_hidden)
 
     def entities(self, /, *, include_hidden: bool = False) -> Iterator[Entity]:
         storage_path = StoragePath(site_uuid = self._site_uuid).path
-        return entity_iter(
-            get_site_name(self._site_uuid),
-            storage_path, self._path,
-            include_hidden = include_hidden
-        )
+        _, env, name_db, _, _, descriptor_db = get_environment_threadsafe(storage_path, self._path)
+        with transaction_context(env, write = False, iterator = True) as (_, cursors, _):
+            return entity_iter(
+                name_db, descriptor_db, cursors, get_site_name(self._site_uuid), self._path,
+                include_hidden = include_hidden
+            )
 
     def __iter__(self) -> Iterator[Entity]:
-        storage_path = StoragePath(site_uuid = self._site_uuid).path
-        return entity_iter(get_site_name(self._site_uuid), storage_path, self._path)
+        return self.entities()
 
     def __len__(self) -> int:
-        return len(list(self.names()))
+        return cardinality.count(self.names())
 
     def __contains__(self, obj) -> bool:
         if isinstance(obj, str):
-            return obj in list(self.names())
-        return obj in list(self.__iter__())
+            return obj in self.names()
+        return obj in self.__iter__()

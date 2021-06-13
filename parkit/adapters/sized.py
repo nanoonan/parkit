@@ -12,7 +12,7 @@ class Sized(Object):
     def clear(self):
         try:
             txn, cursors, changed, implicit = \
-            thread.local.context.get(self._Entity__env, write = True)
+            thread.local.context.get(self._Entity__env, write = True, internal = True)
             updated = False
             for database in self._Entity__userdb:
                 if txn.stat(database)['entries']:
@@ -30,7 +30,7 @@ class Sized(Object):
     def __len__(self) -> int:
         try:
             txn, _, _, implicit = \
-            thread.local.context.get(self._Entity__env, write = False)
+            thread.local.context.get(self._Entity__env, write = False, internal = True)
             result = txn.stat(self._Entity__userdb[0])['entries']
             if implicit:
                 txn.commit()

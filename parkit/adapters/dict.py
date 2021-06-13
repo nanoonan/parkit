@@ -31,7 +31,7 @@ def mkiter(
 ) -> Callable[..., Iterator[Any]]:
     code = """
 def method(self) -> Iterator[Any]:
-    with transaction_context(self._Entity__env, write = False) as (_, cursors, _):
+    with transaction_context(self._Entity__env, write = False, iterator = True) as (_, cursors, _):
         data_cursor = cursors[self._Entity__userdb[0]]
         meta_cursor = cursors[self._Entity__userdb[1]] if self.get_metadata else None
         if not data_cursor.first():
@@ -100,16 +100,13 @@ class Dict(Sized, metaclass = DictMeta):
         self,
         path: Optional[str] = None,
         /,*,
-        create: bool = True,
-        bind: bool = True,
         metadata: Optional[typing.Dict[str, Any]] = None,
         site: Optional[str] = None,
         on_init: Optional[Callable[[bool], None]] = None
     ):
         super().__init__(
             path, db_properties = [{}, {}],
-            create = create, bind = bind, on_init = on_init,
-            metadata = metadata, site = site
+            on_init = on_init, metadata = metadata, site = site
         )
 
     def __getitem__(
@@ -120,7 +117,7 @@ class Dict(Sized, metaclass = DictMeta):
         key_bytes = self.encode_key(key) if self.encode_key else key
         try:
             txn, _, _, implicit = \
-            thread.local.context.get(self._Entity__env, write = False)
+            thread.local.context.get(self._Entity__env, write = False, internal = True)
             data = txn.get(key = key_bytes, db = self._Entity__userdb[0])
             if data is not None:
                 meta = pickle.loads(txn.get(key = key_bytes, db = self._Entity__userdb[1])) \
@@ -143,7 +140,7 @@ class Dict(Sized, metaclass = DictMeta):
         key_bytes = self.encode_key(key) if self.encode_key else key
         try:
             txn, _, _, implicit = \
-            thread.local.context.get(self._Entity__env, write = False)
+            thread.local.context.get(self._Entity__env, write = False, internal = True)
             data = txn.get(key = key_bytes, db = self._Entity__userdb[0])
             if data is not None:
                 meta = pickle.loads(txn.get(key = key_bytes, db = self._Entity__userdb[1])) \
@@ -166,7 +163,7 @@ class Dict(Sized, metaclass = DictMeta):
         key_bytes = self.encode_key(key) if self.encode_key else key
         try:
             txn, cursors, changed, implicit = \
-            thread.local.context.get(self._Entity__env, write = True)
+            thread.local.context.get(self._Entity__env, write = True, internal = True)
             cursor = cursors[self._Entity__userdb[0]]
             result = cursor.set_key(key_bytes)
             if result:
@@ -198,7 +195,7 @@ class Dict(Sized, metaclass = DictMeta):
     def popitem(self) -> Any:
         try:
             txn, cursors, changed, implicit = \
-            thread.local.context.get(self._Entity__env, write = True)
+            thread.local.context.get(self._Entity__env, write = True, internal = True)
             cursor = cursors[self._Entity__userdb[0]]
             result = cursor.last()
             if result:
@@ -231,7 +228,7 @@ class Dict(Sized, metaclass = DictMeta):
         key_bytes = self.encode_key(key) if self.encode_key else key
         try:
             txn, cursors, changed, implicit = \
-            thread.local.context.get(self._Entity__env, write = True)
+            thread.local.context.get(self._Entity__env, write = True, internal = True)
             cursor = cursors[self._Entity__userdb[0]]
             data = cursor.pop(key_bytes)
             if data is not None:
@@ -260,7 +257,7 @@ class Dict(Sized, metaclass = DictMeta):
         key_bytes = self. encode_key(key) if self.encode_key else key
         try:
             txn, cursors, changed, implicit = \
-            thread.local.context.get(self._Entity__env, write = True)
+            thread.local.context.get(self._Entity__env, write = True, internal = True)
             result = txn.delete(key = key_bytes, db = self._Entity__userdb[0])
             if result and self.get_metadata:
                 assert txn.delete(key = key_bytes, db = self._Entity__userdb[1])
@@ -283,7 +280,7 @@ class Dict(Sized, metaclass = DictMeta):
         key_bytes = self.encode_key(key) if self.encode_key else key
         try:
             txn, cursors, _, implicit = \
-            thread.local.context.get(self._Entity__env, write = False)
+            thread.local.context.get(self._Entity__env, write = False, internal = True)
             cursor = cursors[self._Entity__userdb[0]]
             result = cursor.set_key(key_bytes)
             if implicit:
@@ -306,7 +303,7 @@ class Dict(Sized, metaclass = DictMeta):
         value_bytes = self.encode_value(value) if self.encode_value else value
         try:
             txn, cursors, changed, implicit = \
-            thread.local.context.get(self._Entity__env, write = True)
+            thread.local.context.get(self._Entity__env, write = True, internal = True)
             result = txn.put(
                 key = key_bytes, value = value_bytes, overwrite = True, append = False,
                 db = self._Entity__userdb[0]
@@ -372,7 +369,7 @@ class Dict(Sized, metaclass = DictMeta):
         ]
         try:
             txn, cursors, changed, implicit = \
-            thread.local.context.get(self._Entity__env, write = True)
+            thread.local.context.get(self._Entity__env, write = True, internal = True)
             cursor = cursors[self._Entity__userdb[0]]
             if dict_items:
                 cons, add = cursor.putmulti([(key, value[0]) for key, value in dict_items])

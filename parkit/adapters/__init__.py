@@ -1,4 +1,3 @@
-
 from parkit.adapters.array import Array
 
 from parkit.adapters.dict import Dict
@@ -20,12 +19,17 @@ from parkit.adapters.queue import (
 from parkit.adapters.scheduler import (
     Frequency,
     Periodic,
-    Scheduler
+    schedule,
+    Scheduler,
+    schedulers,
+    unschedule
 )
 
 from parkit.adapters.self import self
 
 from parkit.adapters.stream import Stream
+
+from parkit.adapters.synchronized import synchronized
 
 from parkit.adapters.task import (
     bind_task,

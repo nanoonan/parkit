@@ -57,7 +57,7 @@ def method(
     if start <= end:
         try:
             txn, cursors, _, implicit = \
-            thread.local.context.get(self._Entity__env, write = False)
+            thread.local.context.get(self._Entity__env, write = False, internal = True)
             cursor = cursors[self._Entity__userdb[0]]
             if cursor.set_range(struct.pack('@N', start)):
                 while True:
@@ -104,7 +104,7 @@ def method(
 ) -> Iterator[Any]:
     start = 0 if 'start' not in kwargs or kwargs['start'] is None else kwargs['start']
     stop = 2**64 - 1 if 'stop' not in kwargs or kwargs['stop'] is None else kwargs['stop']
-    with transaction_context(self._Entity__env, write = False) as (txn, cursors, _):
+    with transaction_context(self._Entity__env, write = False, iterator = True) as (txn, cursors, _):
         cursor = cursors[self._Entity__userdb[0]]
         size = txn.stat(self._Entity__userdb[0])['entries']
         if start < 0:
@@ -178,16 +178,13 @@ class Array(Sized, metaclass = ArrayMeta):
         self,
         path: Optional[str] = None,
         /, *,
-        create: bool = True,
-        bind: bool = True,
         metadata: Optional[Dict[str, Any]] = None,
         site: Optional[str] = None,
         on_init: Optional[Callable[[bool], None]] = None
     ):
         super().__init__(
             path, db_properties = [{'integerkey': True}, {'integerkey': True}],
-            create = create, bind = bind, on_init = on_init,
-            metadata = metadata, site = site
+            on_init = on_init, metadata = metadata, site = site
         )
 
     def __getitem__(
@@ -199,7 +196,8 @@ class Array(Sized, metaclass = ArrayMeta):
             return ReversibleGetSlice(self, key.start, key.stop)
         try:
             txn, cursors, _, implicit = \
-            thread.local.context.get(self._Entity__env, write = False)
+            thread.local.context.get(self._Entity__env, write = False, internal = True)
+
             cursor = cursors[self._Entity__userdb[0]]
 
             if key < 0:
@@ -242,7 +240,8 @@ class Array(Sized, metaclass = ArrayMeta):
         value_bytes = self.encode_value(value) if self.encode_value else value
         try:
             txn, cursors, changed, implicit = \
-            thread.local.context.get(self._Entity__env, write = True)
+            thread.local.context.get(self._Entity__env, write = True, internal = True)
+
             cursor = cursors[self._Entity__userdb[0]]
 
             key_bytes = struct.pack('@N', key)
@@ -271,8 +270,10 @@ class Array(Sized, metaclass = ArrayMeta):
         item_bytes = self.encode_value(item) if self.encode_value else item
         try:
             txn, cursors, changed, implicit = \
-            thread.local.context.get(self._Entity__env, write = True)
+            thread.local.context.get(self._Entity__env, write = True, internal = True)
+
             cursor = cursors[self._Entity__userdb[0]]
+
             if not cursor.last():
                 key_bytes = struct.pack('@N', 0)
             else:
@@ -302,7 +303,8 @@ class Array(Sized, metaclass = ArrayMeta):
             packed.append((item_bytes, meta))
         try:
             txn, cursors, changed, implicit = \
-            thread.local.context.get(self._Entity__env, write = True)
+            thread.local.context.get(self._Entity__env, write = True, internal = True)
+
             cursor = cursors[self._Entity__userdb[0]]
 
             if not cursor.last():

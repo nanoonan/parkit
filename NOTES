@@ -1,0 +1,42 @@
+
+* Transaction contexts
+
+Each namespace (directory) is separate transaction context. Within
+a namespace, transaction boundaries (for objects that belong to the
+same namespace) are determined by the following rules.
+
+Transaction contexts are cached in thread local storage. Each namespace
+has a separate stack of open transactions for each thread. Cursors
+are opened once and re-used between operations that execute in the
+same transaction.
+
+Outside iterator scope, and transaction or snapshot context managers,
+all operations execute in implicit tranasctions, i.e. a transaction is
+opened and committed for each operation.
+
+For 'with transaction()', everything within that scope executes under a
+single write transaction. Nested openings of iterator scopes or
+snapshot contexts within a transaction() context do not create new transactions.
+
+For 'with snapshot()', everything within that scope executes under a
+single read transaction, except if a transaction() scope is opened, in
+which case the above rule applies for everything within that
+transaction() scope. A transaction error can occur if an object is
+newly referenced within a snapshot. This is due to the fact that
+reifying the object (deserializing) may entail opening a write transaction
+to open the databases associated with the object.
+
+For iterator scope, all operations execute within implicit transactions.
+However, the set of objects associated with the iterator are read within a
+read transaction, so membership itself is derived from a consistent view.
+
+Internally, iterator code passes iterator = True to the transaction_context
+manager to signal the transaction is an iterator context. Objects that
+request a transaction that will operate on internal databases pass an
+internal = True flag when requesting a transaction.
+
+Object attributes are not part of an objects 'internal databases', so when
+inside an iterator or snapshot scope their state is read within the existing
+read transaction. Practically, this means objects generated when iterating a
+namespace (directory) do not open a separate transaction to read the
+object attributes.

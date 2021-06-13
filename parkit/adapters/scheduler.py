@@ -4,83 +4,23 @@ import enum
 import logging
 import math
 import time
-import typing
 import uuid
 
 from typing import (
-    Any, Callable, Iterator, Optional, Tuple, Union
+    Any, Callable, Dict, Iterator, Optional, Tuple, Union
 )
 
 import dateparser
 
 import parkit.constants as constants
 
-from parkit.adapters.dict import Dict
 from parkit.adapters.object import Object
 from parkit.adapters.task import Task
 from parkit.storage.context import transaction_context
+from parkit.storage.namespace import Namespace
 from parkit.utility import resolve_path
 
 logger = logging.getLogger(__name__)
-
-class Scheduler(Object):
-
-    def __init__(
-        self,
-        path: str,
-        /, *,
-        on_init: Optional[Callable[[bool], None]] = None,
-        site: Optional[str] = None
-    ):
-        namespace, _ = resolve_path(path)
-
-        if namespace != constants.SCHEDULER_NAMESPACE:
-            raise ValueError()
-
-        def on_init_(create: bool):
-            if create:
-                self.__tasks = Dict('/'.join([
-                    constants.SCHEDULER_NAMESPACE,
-                    '__{0}__'.format(str(uuid.uuid4()))
-                ]), site = site)
-            if on_init:
-                on_init(create)
-
-        super().__init__(
-            path, on_init = on_init_, site = site
-        )
-
-    @property
-    def tasks(self) -> Iterator[Task]:
-        for task, args, kwargs in self.__tasks.values():
-            yield task
-
-    @property
-    def scheduled(self) -> Iterator[Tuple[Task, Tuple[Any, ...], typing.Dict[str, Any]]]:
-        for task, args, kwargs in self.__tasks.values():
-            if self.is_scheduled(task):
-                yield (task, args, kwargs)
-
-    def __contains__(self, task: Task) -> bool:
-        return task.uuid in self.__tasks
-
-    def is_scheduled(self, _: Task) -> bool:
-        return True
-
-    def schedule(self, task: Task, *args, **kwargs):
-        with transaction_context(self._Entity__env, write = True):
-            if task.uuid not in self.__tasks:
-                self.__tasks[task.uuid] = (task, args, kwargs)
-
-    def unschedule(self, task: Task):
-        with transaction_context(self._Entity__env, write = True):
-            if task.uuid in self.__tasks:
-                del self.__tasks[task.uuid]
-
-    def drop(self):
-        with transaction_context(self._Entity__env, write = True):
-            self.__tasks.drop()
-            super().drop()
 
 class Frequency(enum.Enum):
     Nanosecond = 0
@@ -93,6 +33,81 @@ class Frequency(enum.Enum):
     Week = 7
     Month = 8
     Year = 9
+
+class Scheduler(Object):
+
+    def __init__(
+        self,
+        path: Optional[str] = None,
+        /, *,
+        task: Optional[Task] = None,
+        args: Optional[Tuple[Any, ...]] = None,
+        kwargs: Optional[Dict[str, Any]] = None,
+        on_init: Optional[Callable[[bool], None]] = None,
+        site: Optional[str] = None
+    ):
+        namespace, _ = resolve_path(path)
+
+        if namespace != constants.SCHEDULER_NAMESPACE:
+            raise ValueError()
+
+        def _on_init(create: bool):
+            if create:
+                if task is None:
+                    raise ValueError()
+                self.__task = task
+                self.__args = args if args is not None else ()
+                self.__kwargs = kwargs if kwargs is not None else {}
+            if on_init:
+                on_init(create)
+
+        super().__init__(
+            path, on_init = _on_init, site = site
+        )
+
+    @property
+    def task(self) -> Task:
+        return self.__task
+
+    @property
+    def args(self) -> Tuple[Any, ...]:
+        return self.__args
+
+    @property
+    def kwargs(self) -> Dict[str, Any]:
+        return self.__kwargs
+
+    def is_scheduled(self) -> bool:
+        return True
+
+def schedule(
+    task: Task,
+    *args,
+    **kwargs
+):
+    path = '/'.join([constants.SCHEDULER_NAMESPACE, str(uuid.uuid4())])
+    _ = Periodic(
+        path,
+        frequency = kwargs['frequency'] if 'frequency' in kwargs else None,
+        period = kwargs['period'] if 'period' in kwargs else None,
+        start = kwargs['start'] if 'start' in kwargs else None,
+        max_times = kwargs['max_times'] if 'max_times' in kwargs else None,
+        task = task,
+        args = args,
+        kwargs = {
+            key: value for key, value in kwargs.items() \
+            if key not in ['frequency', 'period', 'start', 'max_times']
+        },
+        site = task.site
+    )
+
+def schedulers(site: Optional[str] = None) -> Iterator[Scheduler]:
+    for scheduler in Namespace(constants.SCHEDULER_NAMESPACE, site = site):
+        if isinstance(scheduler, Scheduler):
+            yield scheduler
+
+def unschedule(scheduler: Scheduler):
+    scheduler.drop()
 
 frequency_ns = {
     Frequency.Second.value: 1e9,
@@ -109,24 +124,21 @@ def get_interval(frequency: Frequency, period: float):
 
 class Periodic(Scheduler):
 
-    class TaskState():
-
-        def __init__(self):
-            self.count = 0
-            self.start_ns = None
-            self.last_run_ns = None
-            self.next_run_ns = None
-
     def __init__(
         self,
-        path: str,
+        path: Optional[str] = None,
         /, *,
-        frequency: Frequency = Frequency.Minute,
-        period: float = 1,
+        task: Optional[Task] = None,
+        args: Optional[Tuple[Any, ...]] = None,
+        kwargs: Optional[Dict[str, Any]] = None,
+        frequency: Optional[Frequency] = None,
+        period: Optional[float] = None,
         start: Optional[Union[str, datetime.datetime]] = None,
         max_times: Optional[int] = None,
         site: Optional[str] = None
     ):
+        frequency = Frequency.Minute if frequency is None else frequency
+        period = 1 if period is None else period
         if not (max_times is None or max_times > 0):
             raise ValueError()
         if period <= 0:
@@ -141,48 +153,52 @@ class Periodic(Scheduler):
 
         def on_init(create: bool):
             if create:
+                self.__count = 0
+                self.__last_run_ns: Optional[int] = None
+                self.__next_run_ns: Optional[int] = None
                 self.__start = parsed_start
                 self.__start_ns = int(parsed_start.timestamp() * 1e9) if parsed_start else None
                 self.__period = period
                 self.__frequency = frequency
                 self.__max_times = max_times if max_times is not None else math.inf
-                self.__task_state = Dict('/'.join([
-                    constants.SCHEDULER_NAMESPACE,
-                    '__{0}__'.format(str(uuid.uuid4()))
-                ]), site = site)
 
-        super().__init__(path, site = site, on_init = on_init)
+        super().__init__(
+            path, task = task, args = args, kwargs = kwargs,
+            site = site, on_init = on_init
+        )
 
-    def next_run(self, task: Task) -> Optional[datetime.datetime]:
-        with transaction_context(self._Entity__env, write = False):
-            if task.uuid not in self.__task_state:
-                raise ValueError()
-            state = self.__task_state[task.uuid]
-            return datetime.datetime.fromtimestamp(state.next_run_ns / 1e9) \
-            if state.next_run_ns is not None else None
+    @property
+    def count(self) -> int:
+        return self.__count
 
-    def last_run(self, task: Task) -> Optional[datetime.datetime]:
-        with transaction_context(self._Entity__env, write = False):
-            if task.uuid not in self.__task_state:
-                raise ValueError()
-            state = self.__task_state[task.uuid]
-            return datetime.datetime.fromtimestamp(state.last_run_ns / 1e9) \
-            if state.last_run_ns is not None else None
+    @property
+    def next_run(self) -> Optional[datetime.datetime]:
+        if self.__next_run_ns is not None:
+            return datetime.datetime.fromtimestamp(self.__next_run_ns / 1e9)
+        if self.__start_ns is not None:
+            return datetime.datetime.fromtimestamp(self.__start_ns / 1e9)
+        return None
 
-    def is_scheduled(self, task: Task) -> bool:
+    @property
+    def last_run(self) -> Optional[datetime.datetime]:
+        if self.__last_run_ns is not None:
+            return datetime.datetime.fromtimestamp(self.__last_run_ns / 1e9)
+        return None
 
-        now_ns = time.time_ns()
+    @property
+    def start(self) -> Optional[datetime.datetime]:
+        return self._start
+
+    def is_scheduled(self) -> bool:
 
         with transaction_context(self._Entity__env, write = True):
 
-            if task.uuid not in self.__task_state:
-                raise ValueError()
+            now_ns = time.time_ns()
 
-            state = self.__task_state[task.uuid]
-
-            if state.count == self.__max_times:
+            if self.__count == self.__max_times:
                 return False
 
+            assert self.__frequency is not None and self.__period is not None
             interval_ns = get_interval(self.__frequency, self.__period)
 
             def get_next_ns(start_ns):
@@ -190,45 +206,26 @@ class Periodic(Scheduler):
                 offset_ns = relative_ns % interval_ns
                 return now_ns + (interval_ns - offset_ns)
 
-            try:
-                if state.last_run_ns is None:
-                    if self.__start_ns is None or self.__start_ns <= now_ns:
-                        state.count += 1
-                        state.last_run_ns = now_ns
-                        if state.count < self.__max_times:
-                            if self.__start_ns is None:
-                                state.start_ns = now_ns
-                            else:
-                                state.start_ns = self.__start_ns
-                            state.next_run_ns = get_next_ns(state.start_ns)
-                        return True
-                    return False
-
-                if state.next_run_ns <= now_ns:
-                    state.count += 1
-                    state.last_run_ns = now_ns
-                    if state.count < self.__max_times:
-                        state.next_run_ns = get_next_ns(state.start_ns)
-                    else:
-                        state.next_run_ns = None
+            if self.__last_run_ns is None:
+                if self.__start_ns is None or self.__start_ns <= now_ns:
+                    self.__count += 1
+                    self.__last_run_ns = now_ns
+                    if self.__count < self.__max_times:
+                        if self.__start_ns is None:
+                            self.__start_ns = now_ns
+                        else:
+                            self.__start_ns = self.__start_ns
+                        self.__next_run_ns = get_next_ns(self.__start_ns)
                     return True
                 return False
-            finally:
-                self.__task_state[task.uuid] = state
 
-    def schedule(self, task: Task, *args, **kwargs):
-        with transaction_context(self._Entity__env, write = True):
-            super().schedule(task, *args, **kwargs)
-            if task.uuid not in self.__task_state:
-                self.__task_state[task.uuid] = Periodic.TaskState()
-
-    def unschedule(self, task: Task):
-        with transaction_context(self._Entity__env, write = True):
-            if task.uuid in self.__task_state:
-                del self.__task_state[task.uuid]
-            super().unschedule(task)
-
-    def drop(self):
-        with transaction_context(self._Entity__env, write = True):
-            self.__task_state.drop()
-            super().drop()
+            assert isinstance(self.__next_run_ns, int)
+            if self.__next_run_ns <= now_ns:
+                self.__count += 1
+                self.__last_run_ns = now_ns
+                if self.__count < self.__max_times:
+                    self.__next_run_ns = get_next_ns(self.__start_ns)
+                else:
+                    self.__next_run_ns = None
+                return True
+            return False

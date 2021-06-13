@@ -6,10 +6,7 @@ from typing import (
 
 import parkit.storage.threadlocal as thread
 
-from parkit.storage.context import (
-    InheritMode,
-    transaction_context
-)
+from parkit.storage.context import transaction_context
 from parkit.storage.entity import Entity
 from parkit.storage.environment import get_environment_threadsafe
 from parkit.exceptions import SiteNotSpecifiedError
@@ -48,7 +45,7 @@ def transaction(
         raise ValueError()
     _, env, _, _, _, _ = get_environment_threadsafe(storage_path, namespace)
     return transaction_context(
-        env, write = True, inherit = InheritMode.Isolated, buffers = zero_copy
+        env, write = True, buffers = zero_copy
     )
 
 def snapshot(

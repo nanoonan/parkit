@@ -41,8 +41,8 @@ for name, default in get_lmdb_profiles()['default'].copy().items():
         if checkenv(name, type(default)):
             cast(dict, get_lmdb_profiles())['default'][name] = getenv(name, type(default))
 
-if not envexists(constants.POOL_SIZE_ENVNAME):
-    setenv(constants.POOL_SIZE_ENVNAME, str(constants.DEFAULT_POOL_SIZE))
+if not envexists(constants.CLUSTER_CONCURRENCY_ENVNAME):
+    setenv(constants.CLUSTER_CONCURRENCY_ENVNAME, str(constants.DEFAULT_CLUSTER_CONCURRENCY))
 
 if not envexists(constants.PROCESS_TERMINATION_TIMEOUT_ENVNAME):
     setenv(
