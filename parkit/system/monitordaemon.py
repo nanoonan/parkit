@@ -1,17 +1,17 @@
-# pylint: disable = invalid-name, broad-except, protected-access
+# pylint: disable = broad-except, protected-access, invalid-name
 import logging
 import os
-import uuid
 
 import parkit.constants as constants
 
+from parkit.adapters.dict import Dict
 from parkit.adapters.queue import Queue
-from parkit.adapters.synchronized import synchronized
-from parkit.node import launch_node
-from parkit.storage.site import (
-    get_site_uuid,
-    import_site
+from parkit.node import (
+    is_running,
+    launch_node,
+    terminate_node
 )
+from parkit.storage.site import get_default_site
 from parkit.system.cluster import get_concurrency
 from parkit.system.pidtable import get_pidtable_snapshot
 from parkit.utility import (
@@ -27,80 +27,124 @@ if __name__ == '__main__':
 
         node_uid = getenv(constants.NODE_UID_ENVNAME, str)
         cluster_uid = getenv(constants.CLUSTER_UID_ENVNAME, str)
-        storage_path = getenv(constants.CLUSTER_STORAGE_PATH_ENVNAME, str)
-        site_uuid = getenv(constants.CLUSTER_SITE_UUID_ENVNAME, str)
-        import_site(storage_path, name = 'main')
-        assert get_site_uuid('main') == site_uuid
 
-        logging.info('monitor started (%s)', node_uid)
+        logger.info('monitor (%s) started for site %s', node_uid, get_default_site())
 
         polling_interval = getenv(constants.MONITOR_POLLING_INTERVAL_ENVNAME, float)
 
-        process_queue = Queue(constants.EXECUTION_QUEUE_PATH)
-
         termination_queue = Queue(constants.NODE_TERMINATION_QUEUE_PATH)
 
-        for _ in polling_loop(polling_interval):
+        running_dict = Dict(constants.RUNNING_DICT_PATH)
+
+        for i in polling_loop(polling_interval):
 
             try:
 
-                with synchronized(cluster_uid):
+                #
+                # Restart nodes if needed
+                #
 
-                    pre_scan_termination_count = len(termination_queue)
+                pre_scan_termination_count = len(termination_queue)
 
-                    snapshot = get_pidtable_snapshot()
+                snapshot = get_pidtable_snapshot()
 
-                    post_scan_termination_count = len(termination_queue)
+                monitor_nodes = sorted([
+                    (pid, entry['node_uid'].split('-')[1], entry['node_uid']) \
+                    for pid, entry in snapshot.items() \
+                    if isinstance(entry['node_uid'], str) and \
+                    entry['node_uid'].split('-')[0] == 'monitor' and \
+                    isinstance(entry['cluster_uid'], str) and \
+                    entry['cluster_uid'] == cluster_uid
+                ], key = lambda x: x[1])
 
-                    worker_nodes = [
-                        entry['node_uid'] for pid, entry in snapshot.items() \
-                        if isinstance(entry['node_uid'], str) and \
-                        entry['node_uid'].split('-')[0] == 'worker' and \
-                        isinstance(entry['cluster_uid'], str) and \
-                        entry['cluster_uid'] == cluster_uid
-                    ]
+                assert node_uid in [entry[2] for entry in monitor_nodes]
 
-                    concurrency = get_concurrency()
+                if len(monitor_nodes) > 1:
+                    index = 0
+                    should_exit = False
+                    while True:
+                        assert index < len(monitor_nodes)
+                        if node_uid != monitor_nodes[index][2]:
+                            if is_running(monitor_nodes[index][2], monitor_nodes[index][0]):
+                                logger.info('duplicate monitor (%s) terminating', node_uid)
+                                should_exit = True
+                                break
+                            index += 1
+                            continue
+                        break
+                    if should_exit:
+                        break
 
-                    pre_scan_delta = \
-                    concurrency - (len(worker_nodes) - pre_scan_termination_count)
+                post_scan_termination_count = len(termination_queue)
 
-                    post_scan_delta = \
-                    concurrency - (len(worker_nodes) - post_scan_termination_count)
+                worker_nodes = [
+                    entry['node_uid'] for _, entry in snapshot.items() \
+                    if isinstance(entry['node_uid'], str) and \
+                    entry['node_uid'].split('-')[0] == 'worker' and \
+                    isinstance(entry['cluster_uid'], str) and \
+                    entry['cluster_uid'] == cluster_uid
+                ]
 
-                    if post_scan_delta > 0:
-                        for _ in range(post_scan_delta):
-                            launch_node(
-                                'worker-{0}'.format(str(uuid.uuid4())),
-                                'parkit.system.workerdaemon',
-                                cluster_uid,
-                                {
-                                    constants.CLUSTER_STORAGE_PATH_ENVNAME: storage_path,
-                                    constants.CLUSTER_SITE_UUID_ENVNAME: site_uuid
-                                }
-                            )
-                    elif pre_scan_delta < 0:
-                        for _ in range(abs(pre_scan_delta)):
-                            termination_queue.put(True)
+                concurrency = get_concurrency()
 
-                    scheduler_nodes = [
-                        entry['node_uid'] for pid, entry in snapshot.items() \
-                        if isinstance(entry['node_uid'], str) and \
-                        entry['node_uid'].split('-')[0] == 'scheduler' and \
-                        isinstance(entry['cluster_uid'], str) and \
-                        entry['cluster_uid'] == cluster_uid
-                    ]
+                pre_scan_delta = \
+                concurrency - (len(worker_nodes) - pre_scan_termination_count)
 
-                    if not scheduler_nodes:
+                post_scan_delta = \
+                concurrency - (len(worker_nodes) - post_scan_termination_count)
+
+                if post_scan_delta > 0:
+                    default_site = get_default_site()
+                    assert default_site is not None
+                    storage_path, _ = default_site
+                    for j in range(post_scan_delta):
                         launch_node(
-                            'scheduler-{0}'.format(str(uuid.uuid4())),
-                            'parkit.system.scheddaemon',
+                            'worker',
+                            'parkit.system.workerdaemon',
                             cluster_uid,
                             {
-                                constants.CLUSTER_STORAGE_PATH_ENVNAME: storage_path,
-                                constants.CLUSTER_SITE_UUID_ENVNAME: site_uuid
+                                constants.DEFAULT_SITE_PATH_ENVNAME: storage_path
                             }
                         )
+                elif pre_scan_delta < 0:
+                    for j in range(abs(pre_scan_delta)):
+                        termination_queue.put(True)
+
+                scheduler_nodes = [
+                    entry['node_uid'] for _, entry in snapshot.items() \
+                    if isinstance(entry['node_uid'], str) and \
+                    entry['node_uid'].split('-')[0] == 'scheduler' and \
+                    isinstance(entry['cluster_uid'], str) and \
+                    entry['cluster_uid'] == cluster_uid
+                ]
+
+                if not scheduler_nodes:
+                    default_site = get_default_site()
+                    assert default_site is not None
+                    storage_path, _ = default_site
+                    launch_node(
+                        'scheduler',
+                        'parkit.system.scheddaemon',
+                        cluster_uid,
+                        {
+                            constants.DEFAULT_SITE_PATH_ENVNAME: storage_path
+                        }
+                    )
+                elif len(scheduler_nodes) > 1:
+                    for uid in scheduler_nodes[1:]:
+                        terminate_node(uid)
+
+                #
+                # Clear crashed executions from running
+                #
+                for name in running_dict.keys():
+                    try:
+                        execution = running_dict[name]
+                        if execution.status == 'crashed':
+                            execution._status = 'crashed'
+                            del running_dict[name]
+                    except KeyError:
+                        pass
 
             except Exception:
                 logger.exception('(monitor) error on pid %i', os.getpid())

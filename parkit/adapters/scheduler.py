@@ -2,7 +2,7 @@
 import datetime
 import enum
 import logging
-import math
+import sys
 import time
 import uuid
 
@@ -38,21 +38,27 @@ class Scheduler(Object):
 
     def __init__(
         self,
-        path: Optional[str] = None,
+        path: str,
         /, *,
         task: Optional[Task] = None,
         args: Optional[Tuple[Any, ...]] = None,
         kwargs: Optional[Dict[str, Any]] = None,
         on_init: Optional[Callable[[bool], None]] = None,
-        site: Optional[str] = None
+        site_uuid: Optional[str] = None,
+        create: bool = True,
+        bind: bool = True
     ):
+        self.__task: Task
+        self.__args: Tuple[Any, ...]
+        self.__kwargs: Dict[str, Any]
+
         namespace, _ = resolve_path(path)
 
         if namespace != constants.SCHEDULER_NAMESPACE:
             raise ValueError()
 
-        def _on_init(create: bool):
-            if create:
+        def _on_init(created: bool):
+            if created:
                 if task is None:
                     raise ValueError()
                 self.__task = task
@@ -62,7 +68,8 @@ class Scheduler(Object):
                 on_init(create)
 
         super().__init__(
-            path, on_init = _on_init, site = site
+            path, on_init = _on_init, site_uuid = site_uuid,
+            create = create, bind = bind
         )
 
     @property
@@ -77,16 +84,16 @@ class Scheduler(Object):
     def kwargs(self) -> Dict[str, Any]:
         return self.__kwargs
 
-    def is_scheduled(self) -> bool:
-        return True
+    def cancel(self):
+        self.drop()
 
 def schedule(
     task: Task,
     *args,
     **kwargs
-):
+) -> Scheduler:
     path = '/'.join([constants.SCHEDULER_NAMESPACE, str(uuid.uuid4())])
-    _ = Periodic(
+    return Periodic(
         path,
         frequency = kwargs['frequency'] if 'frequency' in kwargs else None,
         period = kwargs['period'] if 'period' in kwargs else None,
@@ -98,16 +105,15 @@ def schedule(
             key: value for key, value in kwargs.items() \
             if key not in ['frequency', 'period', 'start', 'max_times']
         },
-        site = task.site
+        site_uuid = task.site_uuid,
+        create = True,
+        bind = False
     )
 
-def schedulers(site: Optional[str] = None) -> Iterator[Scheduler]:
-    for scheduler in Namespace(constants.SCHEDULER_NAMESPACE, site = site):
+def schedulers(site_uuid: Optional[str] = None) -> Iterator[Scheduler]:
+    for scheduler in Namespace(constants.SCHEDULER_NAMESPACE, site_uuid = site_uuid):
         if isinstance(scheduler, Scheduler):
             yield scheduler
-
-def unschedule(scheduler: Scheduler):
-    scheduler.drop()
 
 frequency_ns = {
     Frequency.Second.value: 1e9,
@@ -126,7 +132,7 @@ class Periodic(Scheduler):
 
     def __init__(
         self,
-        path: Optional[str] = None,
+        path: str,
         /, *,
         task: Optional[Task] = None,
         args: Optional[Tuple[Any, ...]] = None,
@@ -135,10 +141,21 @@ class Periodic(Scheduler):
         period: Optional[float] = None,
         start: Optional[Union[str, datetime.datetime]] = None,
         max_times: Optional[int] = None,
-        site: Optional[str] = None
+        site_uuid: Optional[str] = None,
+        create: bool = True,
+        bind: bool = True
     ):
+        self.__count: int
+        self.__last_run_ns: Optional[int]
+        self.__next_run_ns: Optional[int]
+        self.__start: Optional[datetime.datetime]
+        self.__start_ns: Optional[int]
+        self.__period: Optional[float]
+        self.__frequency: Frequency
+        self.__max_times: int
+
         frequency = Frequency.Minute if frequency is None else frequency
-        period = 1 if period is None else period
+        period = 1. if period is None else period
         if not (max_times is None or max_times > 0):
             raise ValueError()
         if period <= 0:
@@ -151,20 +168,23 @@ class Periodic(Scheduler):
         else:
             parsed_start = None
 
-        def on_init(create: bool):
-            if create:
+        def on_init(created: bool):
+            if created:
                 self.__count = 0
-                self.__last_run_ns: Optional[int] = None
-                self.__next_run_ns: Optional[int] = None
+                self.__last_run_ns = None
+                self.__next_run_ns = None
                 self.__start = parsed_start
                 self.__start_ns = int(parsed_start.timestamp() * 1e9) if parsed_start else None
+                assert period is not None
                 self.__period = period
+                assert frequency is not None
                 self.__frequency = frequency
-                self.__max_times = max_times if max_times is not None else math.inf
+                self.__max_times = max_times if max_times is not None else sys.maxsize
 
         super().__init__(
             path, task = task, args = args, kwargs = kwargs,
-            site = site, on_init = on_init
+            site_uuid = site_uuid, on_init = on_init,
+            create = create, bind = bind
         )
 
     @property
@@ -191,7 +211,7 @@ class Periodic(Scheduler):
 
     def is_scheduled(self) -> bool:
 
-        with transaction_context(self._Entity__env, write = True):
+        with transaction_context(self._env, write = True):
 
             now_ns = time.time_ns()
 

@@ -41,10 +41,8 @@ Descriptor = TypedDict(
         'databases': List[Tuple[str, LMDBProperties]],
         'uuid': str,
         'versioned': bool,
-        'anonymous': bool,
         'created': str,
         'type': str,
-        'origin': str,
         'metadata': Dict[str, Any]
     }
 )

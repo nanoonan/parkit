@@ -1,4 +1,3 @@
-# pylint: disable = protected-access
 import logging
 import os
 import typing
@@ -13,36 +12,41 @@ import parkit.constants as constants
 
 from parkit.adapters.dict import Dict
 from parkit.storage.context import transaction_context
-from parkit.storage.site import import_site
+from parkit.storage.environment import get_environment_threadsafe
+from parkit.storage.site import (
+    get_site_uuid,
+    import_site
+)
 from parkit.utility import (
     envexists,
     getenv
 )
 logger = logging.getLogger(__name__)
 
-import_site(
-    getenv(constants.GLOBAL_SITE_STORAGE_PATH_ENVNAME, str),
-    name = constants.GLOBAL_SITE_NAME
-)
+import_site(getenv(constants.GLOBAL_SITE_STORAGE_PATH_ENVNAME, str), create = True)
 
 pid_table = Dict(
     constants.PID_TABLE_DICT_PATH,
-    site = constants.GLOBAL_SITE_NAME
+    site_uuid = get_site_uuid(getenv(constants.GLOBAL_SITE_STORAGE_PATH_ENVNAME, str))
 )
 
 def set_pid_entry():
-    pid_table[os.getpid()] = dict(
-        create_time = psutil.Process(os.getpid()).create_time(),
+    pid = os.getpid()
+    pid_table[pid] = dict(
+        create_time = psutil.Process(pid).create_time(),
         process_uuid = getenv(constants.PROCESS_UUID_ENVNAME, str),
         node_uid = getenv(constants.NODE_UID_ENVNAME, str) \
         if envexists(constants.NODE_UID_ENVNAME) else None,
         cluster_uid = getenv(constants.CLUSTER_UID_ENVNAME, str) \
         if envexists(constants.CLUSTER_UID_ENVNAME) else None
     )
-    logger.info('set pid %i to entry %s', os.getpid(), str(pid_table[os.getpid()]))
 
 def get_pidtable_snapshot() -> typing.Dict[int, typing.Dict[str, Union[float, Optional[str]]]]:
-    with transaction_context(pid_table._Entity__env, write = True):
+    _, env, _, _, _, _ = get_environment_threadsafe(
+        pid_table.storage_path, pid_table.namespace,
+        create = False
+    )
+    with transaction_context(env, write = True):
         active_pids = []
         recorded_pids = list(pid_table.keys())
         for proc in psutil.process_iter(['create_time', 'pid']):

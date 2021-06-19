@@ -1,15 +1,13 @@
-# pylint: disable = invalid-name, broad-except
+# pylint: disable = broad-except
 import logging
 import os
 
 import parkit.constants as constants
 
 from parkit.adapters.scheduler import Scheduler
-from parkit.storage.site import (
-    get_site_uuid,
-    import_site
-)
-from parkit.system.functions import directory
+from parkit.exceptions import ObjectNotFoundError
+from parkit.storage.namespace import Namespace
+from parkit.storage.site import get_default_site
 from parkit.utility import (
     getenv,
     polling_loop
@@ -23,19 +21,19 @@ if __name__ == '__main__':
 
         node_uid = getenv(constants.NODE_UID_ENVNAME, str)
         cluster_uid = getenv(constants.CLUSTER_UID_ENVNAME, str)
-        storage_path = getenv(constants.CLUSTER_STORAGE_PATH_ENVNAME, str)
-        site_uuid = getenv(constants.CLUSTER_SITE_UUID_ENVNAME, str)
-        import_site(storage_path, name = 'main')
-        assert get_site_uuid('main') == site_uuid
 
-        for _ in polling_loop(getenv(constants.SCHEDULER_HEARTBEAT_INTERVAL_ENVNAME, float)):
-            for scheduler in directory(constants.SCHEDULER_NAMESPACE):
+        logger.info('scheduler (%s) started for site %s', node_uid, get_default_site())
+
+        for i in polling_loop(getenv(constants.SCHEDULER_HEARTBEAT_INTERVAL_ENVNAME, float)):
+            for scheduler in Namespace(constants.SCHEDULER_NAMESPACE, create = True):
                 if isinstance(scheduler, Scheduler):
-                    if scheduler.is_scheduled():
-                        try:
+                    try:
+                        if scheduler.is_scheduled():
                             scheduler.task(*scheduler.args, **scheduler.kwargs)
-                        except Exception:
-                            logger.exception('error scheduling task')
+                    except ObjectNotFoundError:
+                        pass
+                    except Exception:
+                        logger.exception('error scheduling task')
 
     except (SystemExit, KeyboardInterrupt, GeneratorExit):
         pass

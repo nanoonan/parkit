@@ -1,14 +1,14 @@
-# pylint: disable = protected-access
+#
+# reviewed: 6/16/21
+#
 import logging
 import types
 
 import parkit.constants as constants
 
-from parkit.storage.entity import (
-    Entity,
-    EntityWrapper
-)
 from parkit.storage.context import transaction_context
+from parkit.storage.entity import Entity
+from parkit.storage.environment import get_environment_threadsafe
 
 from parkit.utility import (
     getenv,
@@ -25,9 +25,8 @@ def wait(*args):
         condition = args.pop()
     else:
         condition = lambda: True
-    if not all(isinstance(arg, (Entity, EntityWrapper)) for arg in args):
+    if not all(isinstance(arg, Entity) for arg in args):
         raise ValueError()
-    args = [arg if isinstance(arg, Entity) else arg.entity for arg in args]
     if len(args) > 0:
         if [
             (arg.site_uuid, arg.namespace)
@@ -37,7 +36,10 @@ def wait(*args):
     versions = []
     for _ in polling_loop(getenv(constants.ADAPTER_POLLING_INTERVAL_ENVNAME, float)):
         if len(args) > 0:
-            with transaction_context(args[0]._Entity__env, write = False):
+            _, env, _, _, _, _ = get_environment_threadsafe(
+                args[0].storage_path, args[0].namespace, create = False
+            )
+            with transaction_context(env, write = False):
                 if not versions:
                     versions = [arg.version for arg in args]
                     if condition():

@@ -1,17 +1,10 @@
+0.0.10
+- code review
+
 0.0.11
 - unsupported ops File class
-- site imports for pool processes
+- site imports for cluster processes
 - performance
-- array resize
-- get metadata only from array, dict
-- replace watchdog?
-- add scheduler tests
-- auto-clean duplicate monitor or scheduler instances
-- typed dicts for pid table, scope table
-- file size for numpy array?
-- stream iterator seems off by one
-- mmap replace bytearray in File
-- garbage collector daemon?
-- garbage collect executions when task no longer exists
-- rename observer fileobserver
-- don't use database inside File
+- replace file observer?
+- override profile envvars for LMDB
+- should have a max concurrency limit

@@ -1,4 +1,3 @@
-# pylint: disable = invalid-name
 import logging
 
 from typing import Any
@@ -6,17 +5,17 @@ from typing import Any
 import parkit.constants as constants
 
 from parkit.adapters.array import Array
-from parkit.storage.site import import_site
+from parkit.storage.site import (
+    get_site_uuid,
+    import_site
+)
 from parkit.utility import getenv
 
-import_site(
-    getenv(constants.GLOBAL_SITE_STORAGE_PATH_ENVNAME, str),
-    name = constants.GLOBAL_SITE_NAME
-)
+import_site(getenv(constants.GLOBAL_SITE_STORAGE_PATH_ENVNAME, str), create = True)
 
 syslog: Array = Array(
     constants.SYSLOG_PATH,
-    site = constants.GLOBAL_SITE_NAME
+    site_uuid = get_site_uuid(getenv(constants.GLOBAL_SITE_STORAGE_PATH_ENVNAME, str))
 )
 
 class LogHandler(logging.StreamHandler):

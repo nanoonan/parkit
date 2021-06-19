@@ -1,290 +1,164 @@
-# pylint: disable = broad-except, no-self-use, attribute-defined-outside-init, too-many-public-methods
-import io
+# pylint: disable = attribute-defined-outside-init, unnecessary-lambda
+#
+# reviewed:
+#
+import codecs
 import logging
-import struct
+import pickle
 
 from typing import (
-    Any, ByteString, Callable, Dict, Iterable, Iterator, List, Optional, Union
+    Any, Dict, Optional, Union
 )
 
-import cardinality
+import numpy as np
+import pandas as pd
 
 import parkit.storage.threadlocal as thread
 
-from parkit.adapters.object import Object
+from parkit.adapters.fileio import FileIO
 from parkit.storage.context import transaction_context
+from parkit.utility import (
+    create_class,
+    get_qualified_class_name
+)
 
 logger = logging.getLogger(__name__)
 
-valid_modes = [
-    'r', 'w', 'a', '+r', '+w', '+a',
-    'br', 'bw', 'ab', '+br', '+bw', '+ab',
-    'rt', 'tw', 'at', '+rt', '+tw', '+at'
-]
+class File(FileIO):
 
-class File(Object):
+    def __get_pandas_dataframe(self) -> pd.DataFrame:
+        try:
+            stash = self.mode
+            self.mode = 'rb'
+            with self:
+                return pd.read_feather(self)
+        finally:
+            self.mode = stash
 
-    __pos: int = 0
-    __buffer: Optional[Union[bytearray, memoryview, io.StringIO]] = None
-    __closed: bool = True
-    __sorted_mode: str = 'r'
-
-    def __init__(
-        self,
-        path: Optional[str] = None,
-        /, *,
-        mode: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None,
-        site: Optional[str] = None,
-        on_init: Optional[Callable[[bool], None]] = None
-    ):
-        def _on_init(create: bool):
-            if create:
-                self.__size = 0
-            if mode:
-                sorted_mode = ''.join(sorted(mode))
-                if sorted_mode not in valid_modes:
-                    raise ValueError()
-                self.__sorted_mode = sorted_mode
-            if on_init:
-                on_init(create)
-
-        super().__init__(
-            path, db_properties = [{'integerkey': True}],
-            metadata = metadata, site = site,
-            on_init = _on_init
+    @staticmethod
+    def __get_numpy_ndarray(
+        data: memoryview,
+        metadata: Dict[str, Any],
+        zero_copy: bool
+    ) -> np.ndarray:
+        return np.lib.stride_tricks.as_strided(
+            np.frombuffer(
+                data if zero_copy else bytearray(data),
+                create_class('.'.join(['numpy', metadata['content-properties']['dtype']]))
+            ),
+            metadata['content-properties']['shape'],
+            metadata['content-properties']['strides']
         )
 
-    def __iter__(self) -> Iterator[Union[str, ByteString]]:
-        raise io.UnsupportedOperation()
-
-    @property
-    def mode(self) -> str:
-        return self.__sorted_mode
-
-    @mode.setter
-    def mode(self, value: str):
-        value = ''.join(sorted(value))
-        if value not in valid_modes:
-            raise ValueError()
-        if not self.__closed:
-            raise ValueError()
-        self.__sorted_mode = value
-
-    @property
-    def empty(self) -> bool:
-        try:
-            txn, _, _, implicit = \
-            thread.local.context.get(self._Entity__env, write = False, internal = True)
-            result = txn.stat(self._Entity__userdb[0])['entries']
-            if implicit:
-                txn.commit()
-        except BaseException as exc:
-            self._Entity__abort(exc, txn, implicit)
-        return result == 0
-
-    @property
-    def size(self) -> int:
-        return self.__size
-
-    @property
-    def closed(self) -> bool:
-        return self.__closed
-
-    def __enter__(self):
-        write = not ('r' in self.__sorted_mode and '+' not in self.__sorted_mode)
-        thread.local.context.push(self._Entity__env, write)
-        self.__closed = False
-        if 'w' not in self.__sorted_mode and not self.empty:
-            self.__buffer = self._load_buffer(binary = 'b' in self.__sorted_mode)
-        else:
-            self.__buffer = bytearray() if 'b' in self.__sorted_mode else io.StringIO()
-        if isinstance(self.__buffer, (bytearray, memoryview)):
-            self.__pos = 0 if 'a' not in self.__sorted_mode else len(self.__buffer)
-        return self
-
-    def __exit__(self, error_type: type, error: Optional[Any], traceback: Any):
-        try:
-            if self.writable():
-                assert isinstance(self.__buffer, (bytearray, io.StringIO))
-                self._save_buffer(self.__buffer)
-        finally:
-            self.__pos = 0
-            self.__buffer = None
-            self.__closed = True
-            thread.local.context.pop(self._Entity__env, error)
-            if error is not None:
-                raise error
-
-    @property
-    def content(self) -> Optional[Union[bytearray, memoryview, str]]:
-        if not self.__closed:
-            raise ValueError()
-        need_copy = not bool(thread.local.context.stacks[self._Entity__env])
-        with transaction_context(self._Entity__env, write = False):
-            if self.empty:
-                return None
-            data = self._load_buffer(binary = 'b' in self.__sorted_mode)
-            if isinstance(data, memoryview):
-                if need_copy:
-                    return bytearray(data)
-            elif isinstance(data, io.StringIO):
-                return data.getvalue()
-            return data
-
-    @content.setter
-    def content(self, data: Union[bytearray, bytes, memoryview, str]):
-        if not self.__closed:
-            raise ValueError()
-        with transaction_context(self._Entity__env, write = True):
-            if isinstance(data, str):
-                self._save_buffer(io.StringIO(data))
-            elif isinstance(data, bytes):
-                self._save_buffer(memoryview(data))
-            else:
-                self._save_buffer(data)
-
-    def encoding(self) -> str:
-        return 'utf-8'
-
-    def isatty(self) -> bool:
-        return False
-
-    def readable(self) -> bool:
-        if '+' in self.__sorted_mode or 'r' in self.__sorted_mode:
-            return True
-        return False
-
-    def writable(self) -> bool:
-        if 'a' in self.__sorted_mode or 'w' in self.__sorted_mode:
-            return True
-        return False
-
-    def seekable(self) -> bool:
-        return True
-
-    def close(self):
-        raise io.UnsupportedOperation()
-
-    def tell(self) -> int:
-        if not self.__closed:
-            if isinstance(self.__buffer, (bytearray, memoryview)):
-                assert self.__pos >= 0
-                return self.__pos
-            assert self.__buffer is not None
-            return self.__buffer.tell()
-        raise ValueError()
-
-    def seek(self, offset: int, whence: int = 0):
-        if not self.__closed:
-            if isinstance(self.__buffer, (bytearray, memoryview)):
-                pos = self.__pos
-                if whence == 0:
-                    pos = offset
-                elif whence == 1:
-                    pos += offset
-                elif whence == 2:
-                    pos = self.__size + offset
-                if pos >= 0:
-                    self.__pos = pos
-            else:
-                assert self.__buffer is not None
-                self.__buffer.seek(offset, whence)
-            return
-        raise ValueError()
-
-    def readline(self, size: int = -1) -> Union[str, bytearray, memoryview]:
-        raise io.UnsupportedOperation()
-
-    def readlines(self, hint: int = -1) -> List[Union[str, bytearray, memoryview]]:
-        raise io.UnsupportedOperation()
-
-    def read(self, size: int = -1) -> Union[str, bytearray, memoryview]:
-        if size < -1:
-            raise ValueError()
-        if self.readable() and not self.__closed:
-            try:
-                if 'b' in self.__sorted_mode:
-                    assert isinstance(self.__buffer, (bytearray, memoryview))
-                    if size == -1:
-                        data = self.__buffer[self.__pos:]
-                        self.__pos = len(self.__buffer)
-                        return data
-                    data = self.__buffer[self.__pos:self.__pos + size]
-                    self.__pos = min(self.__pos + size, len(self.__buffer))
-                    return data
-                assert isinstance(self.__buffer, io.StringIO)
-                return self.__buffer.read(size)
-            except Exception as exc:
-                raise IOError() from exc
-        if self.__closed:
-            raise ValueError()
-        raise io.UnsupportedOperation()
-
-    def write(self, data: Union[str, Union[Iterable[int], bytearray, memoryview, bytes]]) -> int:
-        if self.writable() and not self.__closed:
-            if not isinstance(data, str):
-                assert isinstance(self.__buffer, bytearray)
-                if 'a' in self.__sorted_mode:
-                    self.__pos = len(self.__buffer)
-                self.__buffer[self.__pos:] = data
-                size = cardinality.count(data)
-                self.__pos += size
-                return size
-            assert isinstance(self.__buffer, io.StringIO)
-            return self.__buffer.write(data)
-        if self.__closed:
-            raise ValueError()
-        raise io.UnsupportedOperation()
-
-    def writelines(
+    def __get_octet_stream(
         self,
-        lines: List[Union[str, Union[Iterable[int], bytearray, memoryview, bytes]]]
+        zero_copy: bool
+    ) -> Union[memoryview, bytearray]:
+        data = self._content_binary
+        if zero_copy:
+            return data
+        return bytearray(data)
+
+    def get_content(
+        self,
+        *,
+        zero_copy: bool = False
+    ) -> Optional[Any]:
+        if not self._closed:
+            raise ValueError()
+        need_copy = not bool(thread.local.context.stacks[self._env])
+        with transaction_context(self._env, write = False):
+            try:
+                metadata = self.metadata
+                return {
+                    'application/octet-stream': lambda: self.__get_octet_stream(
+                        zero_copy if not need_copy else False
+                    ),
+                    'application/python-pickle': lambda: pickle.loads(self._content_binary),
+                    'application/python-pandas-dataframe': lambda: self.__get_pandas_dataframe(),
+                    'application/python-numpy-ndarray': lambda: self.__get_numpy_ndarray(
+                        self._content_binary,
+                        metadata,
+                        zero_copy if not need_copy else False
+                    ),
+                    'text/plain': lambda: codecs.decode(
+                        self._content_binary, encoding = self.encoding
+                    )
+                }[metadata['content-type']]()
+            except KeyError:
+                return None
+        raise ValueError()
+
+    def __set_pandas_dataframe(
+        self,
+        data: pd.DataFrame,
+        metadata: Dict[str, Any]
     ):
-        for line in lines:
-            self.write(line)
-
-    def _save_buffer(self, buffer: Union[bytearray, memoryview, io.StringIO]):
         try:
-            txn, cursors, changed, implicit = \
-            thread.local.context.get(self._Entity__env, write = True, internal = True)
-            assert not implicit
-            cursor = cursors[self._Entity__userdb[0]]
-            key = struct.pack('@N', 0)
-            if isinstance(buffer, (bytearray, memoryview)):
-                assert cursor.put(key = key, value = buffer, append = False)
-                self.__size = len(buffer)
+            stash = self.mode
+            self.mode = 'wb'
+            with self:
+                data.to_feather(self)
+            metadata['content-type'] = 'application/python-pandas-dataframe'
+            metadata['content-properties'] = dict(
+                columns = data.columns.to_list(),
+                type = get_qualified_class_name(data)
+            )
+        finally:
+            self.mode = stash
+
+    def __set_numpy_ndarray(
+        self,
+        data: np.ndarray,
+        metadata: Dict[str, Any]
+    ):
+        self._content_binary = data.data
+        self._size = data.data.nbytes
+        metadata['content-type'] = 'application/python-numpy-ndarray'
+        metadata['content-properties'] = dict(
+            shape = data.shape,
+            strides = data.strides,
+            dtype = str(data.dtype),
+            type = get_qualified_class_name(data)
+        )
+
+    def set_content(self, value: Any):
+        if not self._closed:
+            raise ValueError()
+        with transaction_context(self._env, write = True):
+            metadata = self.metadata
+            if isinstance(value, str):
+                self._size = len(value)
+                self._content_binary = memoryview(value.encode(self.encoding))
+                metadata['content-type'] = 'text/plain'
+                metadata['content-encoding'] = self.encoding
+            elif isinstance(value, (memoryview, bytes, bytearray)):
+                self._size = len(value)
+                self._content_binary = memoryview(value)
+                metadata['content-type'] = 'application/octet-stream'
+            elif isinstance(value, pd.DataFrame):
+                self.__set_pandas_dataframe(value, metadata)
+            elif isinstance(value, np.ndarray):
+                self.__set_numpy_ndarray(value, metadata)
             else:
-                data = buffer.getvalue().encode('utf-8')
-                assert cursor.put(key = key, value = data, append = False)
-                self.__size = len(data)
-            changed.add(self)
-        except BaseException as exc:
-            self._Entity__abort(exc, txn, implicit)
+                pickled = pickle.dumps(value)
+                self._size = len(pickled)
+                self._content_binary = memoryview(pickled)
+                metadata['content-type'] = 'application/python-pickle'
+                metadata['content-properties'] = dict(
+                    type = get_qualified_class_name(value)
+                )
+            super(File, self.__class__).metadata.fset(self, metadata) # type: ignore
 
-    def _load_buffer(self, binary: bool) -> Union[bytearray, memoryview, io.StringIO]:
-        try:
-            txn, cursors, _, implicit = \
-            thread.local.context.get(self._Entity__env, write = False, internal = True)
-            assert not implicit
-            cursor = cursors[self._Entity__userdb[0]]
-            key = struct.pack('@N', 0)
-            if binary:
-                if self.__sorted_mode == 'br':
-                    return cursor.get(key = key)
-                return bytearray(cursor.get(key = key))
-            data = cursor.get(key = key)
-            data = bytes(data) if isinstance(data, memoryview) else data
-            return io.StringIO(data.decode('utf-8'))
-        except BaseException as exc:
-            self._Entity__abort(exc, txn, implicit)
-        raise IOError()
+    @property
+    def metadata(self) -> Dict[str, Any]:
+        return super().metadata
 
-    def truncate(self, size = None):
-        raise io.UnsupportedOperation()
-
-    def flush(self):
-        raise io.UnsupportedOperation()
-
-    def fileno(self) -> int:
-        raise IOError()
+    @metadata.setter
+    def metadata(self, value: Dict[str, Any]):
+        value = {
+            k: v
+            for k, v in value.items()
+            if k not in ['content-type', 'content-properties']
+        }
+        super(File, self.__class__).metadata.fset(self, value) # type: ignore

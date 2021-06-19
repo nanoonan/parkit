@@ -1,4 +1,8 @@
 # pylint: disable = c-extension-no-member
+#
+# reviewed: 6/16/21
+#
+import codecs
 import logging
 
 from typing import (
@@ -18,7 +22,7 @@ def load_entity(
     name_db: Any,
     descriptor_db: Any,
     cursors: CursorDict,
-    site: str,
+    site_uuid: str,
     namespace: str,
     /, *,
     name: Optional[str] = None,
@@ -40,13 +44,15 @@ def load_entity(
                 assert name is not None
                 return create_class(descriptor['type'])(
                     '/'.join([namespace, name]),
-                    site = site
+                    site_uuid = site_uuid, create = False,
+                    bind = True
                 )
             except AttributeError:
                 assert name is not None
-                return create_class('parkit.storage.Entity')(
-                    '/'.join([namespace, name]), type_check = False,
-                    site = site
+                return create_class('parkit.storage.entity.Entity')(
+                    namespace, name,
+                    site_uuid = site_uuid,
+                    create = False, bind = True
                 )
     return None
 
@@ -61,9 +67,7 @@ def descriptor_iter(
     descriptor_cursor = cursors[descriptor_db]
     if name_cursor.first():
         while True:
-            key = name_cursor.key()
-            name = bytes(key).decode('utf-8') if isinstance(key, memoryview) else \
-            key.decode('utf-8')
+            name = codecs.decode(name_cursor.key(), encoding = 'utf-8')
             if include_hidden or not (name.startswith('__') and name.endswith('__')):
                 uuid = name_cursor.value()
                 assert uuid is not None
@@ -85,9 +89,7 @@ def name_iter(
     cursor = cursors[name_db]
     if cursor.first():
         while True:
-            key = cursor.key()
-            name = bytes(key).decode('utf-8') if isinstance(key, memoryview) else \
-            key.decode('utf-8')
+            name = codecs.decode(cursor.key(), encoding = 'utf-8')
             if include_hidden or not (name.startswith('__') and name.endswith('__')):
                 yield name
             if not cursor.next():
@@ -97,7 +99,7 @@ def entity_iter(
     name_db: Any,
     descriptor_db: Any,
     cursors: CursorDict,
-    site: str,
+    site_uuid: str,
     namespace: str,
     /, *,
     include_hidden: bool = False
@@ -105,12 +107,10 @@ def entity_iter(
     cursor = cursors[name_db]
     if cursor.first():
         while True:
-            key = cursor.key()
-            name = bytes(key).decode('utf-8') if isinstance(key, memoryview) else \
-            key.decode('utf-8')
+            name = codecs.decode(cursor.key(), encoding = 'utf-8')
             if include_hidden or not (name.startswith('__') and name.endswith('__')):
                 entity = load_entity(
-                    name_db, descriptor_db, cursors, site, namespace,
+                    name_db, descriptor_db, cursors, site_uuid, namespace,
                     name = name, uuid = cursor.value()
                 )
                 if entity is not None:

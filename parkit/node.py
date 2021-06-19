@@ -1,14 +1,17 @@
 # pylint: disable = broad-except
+#
+# reviewed: 6/14/21
+#
 import importlib
 import logging
 import os
 import platform
 import sys
 import subprocess
-import threading
+import uuid
 
 from typing import (
-    Dict, Optional
+    Dict, List, Optional
 )
 
 import psutil
@@ -19,77 +22,145 @@ from parkit.utility import getenv
 
 logger = logging.getLogger(__name__)
 
-def terminate_all_nodes(cluster_uid: str):
-    def run():
+def terminate_all_nodes(
+    cluster_uid: str,
+    /, *,
+    priority_filter: Optional[List[str]] = None
+):
+    if not cluster_uid:
+        raise ValueError()
+
+    def get_nodes():
+        nodes = []
         for proc in psutil.process_iter(['environ', 'pid']):
             try:
                 env = proc.info['environ']
-                if env and constants.NODE_UID_ENVNAME in env and \
-                constants.CLUSTER_UID_ENVNAME in env:
+                if env and constants.CLUSTER_UID_ENVNAME in env and \
+                constants.NODE_UID_ENVNAME in env:
                     if env[constants.CLUSTER_UID_ENVNAME] == cluster_uid:
-                        pid = proc.info['pid']
-                        terminate_process(
-                            pid,
-                            getenv(constants.PROCESS_TERMINATION_TIMEOUT_ENVNAME, float)
-                        )
+                        nodes.append((
+                            env[constants.NODE_UID_ENVNAME],
+                            proc.info['pid']
+                        ))
             except (psutil.NoSuchProcess, psutil.AccessDenied):
                 pass
-            except Exception:
-                logger.exception('error terminating node')
-    threading.Thread(target = run).start()
+        return nodes
+
+    try:
+        if priority_filter is not None:
+            nodes = get_nodes()
+            priority_nodes = [
+                (node_uid, pid) for node_uid, pid in nodes \
+                if [True for match in priority_filter if match in node_uid]
+            ]
+            for node_uid, pid in priority_nodes:
+                terminate_process(
+                    node_uid,
+                    pid,
+                    getenv(
+                        constants.PROCESS_TERMINATION_TIMEOUT_ENVNAME,
+                        float
+                    )
+                )
+        for node_uid, pid in get_nodes():
+            terminate_node(node_uid, pid)
+    except Exception:
+        logger.exception('error terminating cluster')
 
 def terminate_process(
+    node_uid: str,
     pid: int,
     termination_timeout: float
 ):
     if psutil.pid_exists(pid):
         try:
             proc = psutil.Process(pid)
-            proc.terminate()
-            _, alive = psutil.wait_procs([proc], timeout = termination_timeout)
-            for proc in alive:
-                proc.kill()
+            env = proc.environ()
+            if env and constants.NODE_UID_ENVNAME in env:
+                if env[constants.NODE_UID_ENVNAME] == node_uid:
+                    proc.terminate()
+                    _, alive = psutil.wait_procs([proc], timeout = termination_timeout)
+                    for proc in alive:
+                        proc.kill()
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             pass
-        except Exception:
-            logger.exception('error terminating process')
+
+def is_running(
+    node_uid: str,
+    pid: Optional[int] = None
+) -> bool:
+    if not node_uid:
+        raise ValueError()
+    if pid is not None:
+        try:
+            if psutil.pid_exists(pid):
+                proc = psutil.Process(pid)
+                env = proc.environ()
+                if env and constants.NODE_UID_ENVNAME in env:
+                    if env[constants.NODE_UID_ENVNAME] == node_uid:
+                        return proc.is_running()
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            pass
+        return False
+    for proc in psutil.process_iter(['environ', 'pid']):
+        try:
+            env = proc.info['environ']
+            if env and constants.NODE_UID_ENVNAME in env:
+                if env[constants.NODE_UID_ENVNAME] == node_uid:
+                    return proc.is_running()
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            pass
+    return False
 
 def terminate_node(
     node_uid: str,
-    cluster_uid: str
+    pid: Optional[int] = None
 ):
-    def run():
-        for proc in psutil.process_iter(['environ', 'pid']):
-            try:
-                env = proc.info['environ']
-                if env and constants.NODE_UID_ENVNAME in env and \
-                constants.CLUSTER_UID_ENVNAME in env:
-                    if env[constants.CLUSTER_UID_ENVNAME] == cluster_uid and \
-                    env[constants.NODE_UID_ENVNAME] == node_uid:
-                        pid = proc.info['pid']
-                        terminate_process(
-                            pid,
-                            getenv(
-                                constants.PROCESS_TERMINATION_TIMEOUT_ENVNAME,
-                                float
+    if not node_uid:
+        raise ValueError()
+    try:
+        if pid is not None:
+            terminate_process(
+                node_uid,
+                pid,
+                getenv(
+                    constants.PROCESS_TERMINATION_TIMEOUT_ENVNAME,
+                    float
+                )
+            )
+        else:
+            for proc in psutil.process_iter(['environ', 'pid']):
+                try:
+                    env = proc.info['environ']
+                    if env and constants.NODE_UID_ENVNAME in env:
+                        if env[constants.NODE_UID_ENVNAME] == node_uid:
+                            terminate_process(
+                                node_uid,
+                                proc.info['pid'],
+                                getenv(
+                                    constants.PROCESS_TERMINATION_TIMEOUT_ENVNAME,
+                                    float
+                                )
                             )
-                        )
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
-                pass
-            except Exception:
-                logger.exception('error termining node')
-    threading.Thread(target = run).start()
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    pass
+    except Exception:
+        logger.exception('error terminating node')
 
 def launch_node(
-    node_uid: str,
+    node_type: str,
     node_module: str,
     cluster_uid: str,
     environment: Optional[Dict[str, str]] = None
 ):
-    def run():
+    if not node_type or not node_module or not cluster_uid:
+        raise ValueError()
+    node_uid =  '-'.join([node_type, str(uuid.uuid4())])
+    module = importlib.import_module(node_module)
+    path = os.path.abspath(module.__file__)
+
+    if platform.system() == 'Windows':
         try:
-            module = importlib.import_module(node_module)
-            path = os.path.abspath(module.__file__)
             env = os.environ.copy()
             env[constants.NODE_UID_ENVNAME] = node_uid
             env[constants.CLUSTER_UID_ENVNAME] = cluster_uid
@@ -103,12 +174,14 @@ def launch_node(
                 create_new_process_group = 0x00000200
                 detached_process = 0x00000008
                 subprocess.Popen(
-                    [sys.executable, path], stdin = subprocess.PIPE,
-                    stdout = subprocess.PIPE, stderr = subprocess.PIPE,  env = env,
+                    [sys.executable, path], env = env,
+                    stdin = subprocess.DEVNULL, stderr = subprocess.STDOUT,
+                    stdout = subprocess.DEVNULL,
                     creationflags = detached_process | create_new_process_group
                 )
             else:
                 raise NotImplementedError()
         except Exception:
             logger.error('error launching node')
-    threading.Thread(target = run).start()
+    else:
+        raise NotImplementedError()

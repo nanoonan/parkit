@@ -1,8 +1,12 @@
+#
+# reviewed: 6/14/21
+#
 import logging
+import os
 
 import parkit.constants as constants
 
-from parkit.storage.site import import_site
+from parkit.storage.site import set_default_site
 from parkit.system.pidtable import set_pid_entry
 from parkit.utility import (
     envexists,
@@ -11,14 +15,9 @@ from parkit.utility import (
 
 logger = logging.getLogger(__name__)
 
+if envexists(constants.DEFAULT_SITE_PATH_ENVNAME):
+    storage_path = getenv(constants.DEFAULT_SITE_PATH_ENVNAME, str)
+    logger.info('set default path on pid=%i to %s', os.getpid(), storage_path)
+    set_default_site(storage_path, create = True)
+
 set_pid_entry()
-
-if envexists(constants.DEFAULT_SITE_PATH) and envexists(constants.DEFAULT_SITE_NAME):
-    storage_path = getenv(constants.DEFAULT_SITE_PATH, str)
-    site_name = getenv(constants.DEFAULT_SITE_NAME, str)
-    import_site(storage_path, name = site_name)
-elif envexists(constants.DEFAULT_SITE_PATH):
-    storage_path = getenv(constants.DEFAULT_SITE_PATH, str)
-    import_site(storage_path)
-
-logger.info('parkit ready')

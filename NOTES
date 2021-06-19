@@ -1,5 +1,22 @@
+* Default DB Layout
 
-* Transaction contexts
+root environment:
+    __uuid__
+    [<namespace path>]
+
+namespace environment:
+    __uuid__
+    __attribute__
+    __descriptor__
+    __version__
+    __name__
+    [user databases (sha digest)]
+
+    __exec__ also has:
+        [<execution name>:<task uuid>]
+        [<task uuid>:<execution name>]
+
+* Transaction Contexts
 
 Each namespace (directory) is separate transaction context. Within
 a namespace, transaction boundaries (for objects that belong to the

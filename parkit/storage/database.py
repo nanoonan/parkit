@@ -1,3 +1,6 @@
+#
+# reviewed: 6/16/21
+#
 import logging
 import threading
 
@@ -15,10 +18,15 @@ databases_lock: threading.Lock = threading.Lock()
 
 databases: Dict[Union[int, str], Any] = {}
 
+#
+# A database is opened at most once by one thread on the process. The
+# database object remains for the life of the process, even if the
+# database is dropped.
+#
+
 def get_database_threadsafe(key: Union[int, str]) -> Optional[Any]:
     try:
-        with databases_lock:
-            return databases[key]
+        return databases[key]
     except KeyError:
         return None
 
@@ -27,13 +35,15 @@ def open_database_threadsafe(
     env: lmdb.Environment,
     dbuid: str,
     properties: LMDBProperties,
+    /, *,
     create: bool = False
 ) -> Any:
     if dbuid not in databases:
         with databases_lock:
             if dbuid not in databases:
                 database = env.open_db(
-                    txn = txn, key = dbuid.encode('utf-8'),
+                    txn = txn,
+                    key = dbuid.encode('utf-8'),
                     integerkey = properties['integerkey'] if 'integerkey' in properties else False,
                     dupsort = properties['dupsort'] if 'dupsort' in properties else False,
                     dupfixed = properties['dupfixed'] if 'dupfixed' in properties else False,

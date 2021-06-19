@@ -1,4 +1,4 @@
-# pylint: disable = attribute-defined-outside-init, protected-access
+# pylint: disable = unused-argument
 import functools
 import importlib
 import importlib.abc
@@ -17,10 +17,10 @@ import cloudpickle
 
 import parkit.constants as constants
 
-from parkit.adapters.arguments import Arguments
 from parkit.adapters.asyncexecution import AsyncExecution
 from parkit.adapters.object import Object
-from parkit.adapters.observer import ModuleObserver
+from parkit.adapters.fileobserver import FileObserver
+from parkit.exceptions import ObjectNotFoundError
 from parkit.storage.context import transaction_context
 from parkit.storage.environment import get_environment_threadsafe
 from parkit.storage.namespace import Namespace
@@ -33,7 +33,7 @@ from parkit.utility import (
 
 logger = logging.getLogger(__name__)
 
-module_observer = ModuleObserver()
+file_observer = FileObserver()
 
 class Task(Object):
 
@@ -46,18 +46,24 @@ class Task(Object):
         target: Optional[Callable[..., Any]] = None,
         default_sync: Optional[bool] = None,
         metadata: Optional[Dict[str, Any]] = None,
-        site: Optional[str] = None,
+        site_uuid: Optional[str] = None,
+        create: bool = True,
+        bind: bool = True
     ):
+        self.__latest: Optional[Tuple[str, Union[bytes, Tuple[str, str]]]]
+        self.__default_sync: bool
+
         if target:
             module = inspect.getmodule(target)
             if not hasattr(module, '__file__'):
                 bytecode = cloudpickle.dumps(target)
-                digest = 'bytecode-{0}'.format(
+                digest = '-'.join([
+                    'bytecode',
                     create_string_digest(bytecode)
-                )
+                ])
             else:
                 assert isinstance(module, types.ModuleType)
-                digest = module_observer.get_digest(
+                digest = file_observer.get_digest(
                     module.__name__,
                     target.__name__
                 )
@@ -77,29 +83,31 @@ class Task(Object):
                             )
                         )
 
-        def on_init(create: bool):
-            if create:
+        def on_init(created: bool):
+            if created:
                 self.__default_sync = default_sync if default_sync is not None else False
                 self.__latest = None
                 load_target()
             else:
-                with transaction_context(self._Entity__env, write = True):
+                with transaction_context(self._env, write = True):
                     if default_sync is not None:
                         self.__default_sync = default_sync
                     load_target()
 
         super().__init__(
             path,
-            on_init = on_init, versioned = False,
-            metadata = metadata, site = site
+            on_init = on_init, metadata = metadata,
+            site_uuid = site_uuid, create = create, bind = bind
         )
 
     @functools.lru_cache(None)
     def __bytecode_cache(self, target_digest: str) -> Callable[..., Any]:
+        assert isinstance(self.__latest, tuple) and isinstance(self.__latest[1], bytes)
         return cloudpickle.loads(self.__latest[1])
 
     @functools.lru_cache(None)
     def __module_cache(self, target_digest: str) -> Callable[..., Any]:
+        assert isinstance(self.__latest, tuple) and isinstance(self.__latest[1], tuple)
         module_name, function_name = self.__latest[1]
         spec = importlib.util.find_spec(module_name)
         if spec is None:
@@ -112,7 +120,7 @@ class Task(Object):
             module_name, function_name, os.getpid()
         )
         if isinstance(getattr(module, function_name), Task):
-            return getattr(module, function_name)._target_function
+            return getattr(module, function_name).function
         return getattr(module, function_name)
 
     def invoke(
@@ -121,8 +129,8 @@ class Task(Object):
         args: Optional[Tuple[Any, ...]] = None,
         kwargs: Optional[Dict[str, Any]] = None
     ) -> Any:
-        assert self.__latest
-        with transaction_context(self._Entity__env, write = False):
+        assert self.__latest is not None
+        with transaction_context(self._env, write = False):
             target_digest, _ = self.__latest
             if target_digest.startswith('bytecode'):
                 target = self.__bytecode_cache(target_digest)
@@ -144,24 +152,32 @@ class Task(Object):
                 restore
             )
 
+    @property
+    def function(self) -> Optional[Callable[..., Any]]:
+        return self._target_function
+
+    @property
     def executions(self) -> Iterator[AsyncExecution]:
         _, env, _, _, _, _ = get_environment_threadsafe(
             self.storage_path,
-            constants.EXECUTION_NAMESPACE
+            constants.EXECUTION_NAMESPACE,
+            create = False
         )
-        with transaction_context(env, write = False, buffers = False) as (txn, _, _):
+        with transaction_context(env, write = False) as (txn, _, _):
             cursor = txn.cursor()
-            namespace = Namespace(constants.EXECUTION_NAMESPACE, site = self.site)
+            namespace = Namespace(constants.EXECUTION_NAMESPACE, site_uuid = self.site_uuid)
             if cursor.set_range(self.uuid.encode('utf-8')):
                 while True:
-                    key = cursor.key().decode('utf-8')
+                    key_bytes = cursor.key()
+                    key_bytes = bytes(key_bytes) if isinstance(key_bytes, memoryview) else key_bytes
+                    key = key_bytes.decode('utf-8')
                     if key.startswith(self.uuid):
                         name = key.split(':')[1]
                         try:
-                            entity = namespace[name]
+                            entity = namespace.get(name)
                             if isinstance(entity, AsyncExecution):
                                 yield entity
-                        except KeyError:
+                        except (KeyError, ObjectNotFoundError):
                             pass
                         if cursor.next():
                             continue
@@ -180,15 +196,14 @@ class Task(Object):
         if sync is None:
             sync = self.__default_sync
         if not sync:
-            try:
-                setenv(constants.ANONYMOUS_SCOPE_FLAG_ENVNAME, self.site_uuid)
-                return AsyncExecution(
-                    task = self,
-                    arguments = Arguments(args = args, kwargs = kwargs),
-                    site = self.site
-                )
-            finally:
-                setenv(constants.ANONYMOUS_SCOPE_FLAG_ENVNAME, None)
+            return AsyncExecution(
+                task = self,
+                args = args,
+                kwargs = kwargs,
+                site_uuid = self.site_uuid,
+                create = True,
+                bind = False
+            )
         return self.invoke(args = args, kwargs = kwargs)
 
 def task(
@@ -197,7 +212,7 @@ def task(
     qualify_name: bool = False,
     metadata: Optional[Dict[str, Any]] = None,
     default_sync: Optional[bool] = None,
-    site: Optional[str] = None
+    site_uuid: Optional[str] = None
 ) -> Union[Task, Callable[[Callable[..., Any]], Task]]:
 
     def setup(name, target):
@@ -209,7 +224,7 @@ def task(
         return Task(
             '/'.join([constants.MODULE_NAMESPACE, name]), target = target,
             default_sync = default_sync, metadata = metadata,
-            site = site
+            site_uuid = site_uuid
         )
 
     target = None
@@ -225,9 +240,9 @@ def task(
 
 def bind_task(
     name: str,
-    site: Optional[str] = None
+    site_uuid: Optional[str] = None
 ):
-    return Task('/'.join([constants.MODULE_NAMESPACE, name]), site = site)
+    return Task('/'.join([constants.MODULE_NAMESPACE, name]), site_uuid = site_uuid)
 
 def create_task(
     target: Callable[..., Any],
@@ -235,7 +250,7 @@ def create_task(
     name: Optional[str] = None,
     qualify_name: bool = False,
     metadata: Optional[Dict[str, Any]] = None,
-    site: Optional[str] = None
+    site_uuid: Optional[str] = None
 ) -> Task:
     if not name:
         if qualify_name:
@@ -244,5 +259,5 @@ def create_task(
             name = target.__name__
     return Task(
         '/'.join([constants.MODULE_NAMESPACE, name]),
-        target = target, metadata = metadata, site = site
+        target = target, metadata = metadata, site_uuid = site_uuid
     )

@@ -4,3 +4,6 @@ max-args = 10
 max-branches = 20
 max-nested-blocks = 10
 max-locals = 20
+max-attributes = 15
+max-return-statements = 10
+ignored-modules = resource, ctypes, ctypes.wintypes

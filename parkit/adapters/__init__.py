@@ -4,10 +4,7 @@ from parkit.adapters.dict import Dict
 
 from parkit.adapters.file import File
 
-from parkit.adapters.scopetable import (
-    check_scope,
-    dump_scope_table
-)
+from parkit.adapters.fileio import FileIO
 
 from parkit.adapters.object import Object
 
@@ -21,15 +18,10 @@ from parkit.adapters.scheduler import (
     Periodic,
     schedule,
     Scheduler,
-    schedulers,
-    unschedule
+    schedulers
 )
 
 from parkit.adapters.self import self
-
-from parkit.adapters.stream import Stream
-
-from parkit.adapters.synchronized import synchronized
 
 from parkit.adapters.task import (
     bind_task,

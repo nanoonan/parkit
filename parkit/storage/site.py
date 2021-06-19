@@ -1,74 +1,66 @@
+#
+# reviewed: 6/16/21
+#
+import functools
 import logging
-import uuid
+import os
+import threading
 
 from typing import (
-    Dict, List, Optional
+    Dict, Optional, Tuple
 )
 
+import parkit.constants as constants
 import parkit.storage.threadlocal as thread
 
 from parkit.exceptions import SiteNotFoundError
-from parkit.storage.threadlocal import StoragePath
+from parkit.storage.environment import get_environment_threadsafe
 
 logger = logging.getLogger(__name__)
 
 site_map: Dict[str, str] = {}
 
-def get_site_uuid(name: str):
-    if name in site_map.values():
-        for site_uuid, site_name in site_map.items():
-            if name == site_name:
-                return site_uuid
-    raise SiteNotFoundError()
+site_map_lock: threading.Lock = threading.Lock()
 
-def get_site_name(site_uuid: str):
-    if site_uuid in site_map:
-        return site_map[site_uuid]
-    raise SiteNotFoundError()
+def set_default_site(
+    path: str,
+    /, *,
+    create: bool = False,
+    overwrite_thread_local: bool = True
+):
+    storage_path = os.path.abspath(path)
+    site_uuid = get_site_uuid(storage_path, create = create)
+    if overwrite_thread_local or thread.local.default_site is None:
+        thread.local.default_site = (storage_path, site_uuid)
+
+def get_default_site() -> Optional[Tuple[str, str]]:
+    return thread.local.default_site
 
 def import_site(
     path: str,
     /, *,
-    name: Optional[str] = None
+    create: bool = False
 ):
-    storage_path = StoragePath(path = path)
-    for site_uuid, site_name in site_map.copy().items():
-        if site_uuid == storage_path.site_uuid:
-            if not name:
-                return
-            if site_name == name:
-                return
-    if name in site_map.values():
-        for site_uuid, site_name in site_map.copy().items():
-            if name == site_name:
-                del site_map[site_uuid]
-                if thread.local.storage_path:
-                    if thread.local.storage_path.site_uuid == site_uuid:
-                        thread.local.storage_path = None
-    if not name:
-        name = str(uuid.uuid4())
-    site_map[storage_path.site_uuid] = name
-    if thread.local.storage_path is None:
-        if not (name.startswith('__') and name.endswith('__')):
-            thread.local.storage_path = storage_path
+    set_default_site(path, create = create, overwrite_thread_local = False)
 
-def set_site(name: str):
-    if name not in site_map.values():
-        raise SiteNotFoundError()
-    for site_uuid, site_name in site_map.items():
-        if name == site_name:
-            thread.local.storage_path = StoragePath(site_uuid = site_uuid)
+@functools.lru_cache(None)
+def get_storage_path(site_uuid: str) -> str:
+    if site_uuid in site_map:
+        return site_map[site_uuid]
+    raise SiteNotFoundError()
 
-def get_site() -> Optional[str]:
-    if thread.local.storage_path:
-        assert thread.local.storage_path.site_uuid in site_map
-        return site_map[thread.local.storage_path.site_uuid]
-    return None
-
-def get_sites(*, include_hidden: bool = False) -> List[str]:
-    if include_hidden:
-        return list(site_map.values())
-    return [
-        name for name in list(site_map.values()) \
-        if not (name.startswith('__') and name.endswith('__'))
-    ]
+def get_site_uuid(
+    path: str,
+    /, *,
+    create: bool = False
+) -> str:
+    storage_path = os.path.abspath(path)
+    if storage_path not in site_map:
+        with site_map_lock:
+            if storage_path not in site_map:
+                site_uuid, _, _, _, _, _ = get_environment_threadsafe(
+                    storage_path, constants.ROOT_NAMESPACE, create = create
+                )
+                site_map[site_uuid] = storage_path
+                site_map[storage_path] = site_uuid
+    return site_map[storage_path]

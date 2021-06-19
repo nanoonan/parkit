@@ -4,11 +4,11 @@ from parkit.typeddicts import Profiles
 
 PROCESS_UUID_ENVNAME: str = 'PARKIT_PROCESS_UUID'
 
+KEY_SUFFIX_OBJECT_BINARY_ATTRIBUTE: str = '_binary'
+
 PID_FILENAME_PREFIX: str = 'parkit-'
 PID_FILENAME_EXTENSION: str = '.pid'
 
-CLUSTER_SITE_UUID_ENVNAME: str = 'PARKIT_CLUSTER_SITE_UUID'
-CLUSTER_STORAGE_PATH_ENVNAME: str = 'PARKIT_CLUSTER_STORAGE_PATH'
 NODE_UID_ENVNAME: str = 'PARKIT_NODE_UID'
 CLUSTER_UID_ENVNAME: str = 'PARKIT_CLUSTER_UID'
 
@@ -28,15 +28,12 @@ SCHEDULER_HEARTBEAT_INTERVAL_ENVNAME: str = 'PARKIT_SCHEDULER_HEARTBEAT_INTERVAL
 
 SELF_ENVNAME: str = 'PARKIT_SELF_REFERENCE'
 
-ANONYMOUS_SCOPE_FLAG_ENVNAME: str = 'PARKIT_GC_SCOPE'
-
 PARKIT_TEMP_SITE_DIRNAME: str = 'parkit'
 GLOBAL_SITE_STORAGE_PATH_ENVNAME: str = 'PARKIT_GLOBAL_SITE_STORAGE_PATH'
 GLOBAL_FILE_LOCK_PATH_ENVNAME: str =  'PARKIT_GLOBAL_FILE_LOCK_PATH'
 GLOBAL_FILE_LOCK_FILENAME: str = 'parkit.global.lock'
 
-DEFAULT_SITE_PATH: str = 'DEFAULT_SITE_PATH'
-DEFAULT_SITE_NAME: str = 'DEFAULT_SITE_NAME'
+DEFAULT_SITE_PATH_ENVNAME: str = 'DEFAULT_SITE_PATH'
 
 LMDB_WRITE_MAP_ENVNAME: str = 'LMDB_WRITE_MAP'
 LMDB_MAP_ASYNC_ENVNAME: str = 'LMDB_MAP_ASYNC'
@@ -86,19 +83,17 @@ ROOT_NAMESPACE: str = ''
 DEFAULT_NAMESPACE: str = 'default'
 MEMORY_NAMESPACE: str = 'memory'
 SCHEDULER_NAMESPACE: str = '__sched__'
-SYNCHRONIZED_NAMESPACE: str = 'memory'
+SYNCHRONIZED_NAMESPACE: str = 'memory/synchronized'
+COUNTER_NAMESPACE: str = 'memory/counter'
 EXECUTION_NAMESPACE: str = '__exec__'
 MODULE_NAMESPACE: str = 'module'
 
-GLOBAL_SITE_NAME: str = '__global__'
-SCOPE_TABLE_NAME: str = '__scope_table__'
-
-EXECUTION_QUEUE_PATH: str = '__exec__/__execution_queue__'
+RUNNING_DICT_PATH: str = '__exec__/__running_dict__'
+SUBMIT_QUEUE_PATH: str = '__exec__/__submit_queue__'
 NODE_TERMINATION_QUEUE_PATH: str = '__exec__/__node_termination_queue__'
 CLUSTER_STATE_DICT_PATH: str = '__exec__/__cluster_state_dict__'
-EXECUTION_INDEX_PATH: str = '__exec__/__execution_index__'
-SYSLOG_PATH: str = 'memory/__syslog__'
-PID_TABLE_DICT_PATH: str = 'memory/__pid_table__'
+SYSLOG_PATH: str = 'memory/syslog/__syslog__'
+PID_TABLE_DICT_PATH: str = 'memory/pid_table/__pid_table__'
 
 ATTRIBUTE_DATABASE: str = '__attribute__'
 VERSION_DATABASE: str = '__version__'

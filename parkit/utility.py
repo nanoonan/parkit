@@ -1,22 +1,31 @@
+# pylint: disable = too-few-public-methods
 import ast
 import distutils.util
 import functools
 import gc
+import hashlib
 import importlib
 import inspect
 import logging
-import hashlib
 import os
+import platform
 import sys
 import time
 import types
 import uuid
 
 from typing import (
-    Any, Callable, Dict, Iterator, List, Optional, Tuple, Union
+    Any, Callable, Dict, Iterator, List, Optional, Set, Tuple, Union
 )
 
 import parkit.constants as constants
+
+if platform.system() == 'Windows':
+    from ctypes import Structure, byref, windll
+    from ctypes.wintypes import WORD, DWORD, LPVOID
+
+if platform.system() == 'Unix':
+    import resource
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +39,7 @@ class Timer():
         self._start = time.time_ns()
 
     def stop(self):
-        logger.info(
+        print(
             'timer for %s: %f ms', self._name,
             (time.time_ns() - self._start) / 1e6
         )
@@ -67,8 +76,8 @@ def get_memory_size(target: Any) -> int:
     return size
 
 @functools.lru_cache(None)
-def create_class(qualified_class_name: str) -> type:
-    module_path, class_name = qualified_class_name.rsplit('.', 1)
+def create_class(name: str) -> type:
+    module_path, class_name = name.rsplit('.', 1)
     module = importlib.import_module(module_path)
     return getattr(module, class_name)
 
@@ -76,6 +85,25 @@ def get_qualified_class_name(obj: Any) -> str:
     if isinstance(obj, type):
         return obj.__module__ + '.' + obj.__name__
     return obj.__class__.__module__ + '.' + obj.__class__.__name__
+
+def get_qualified_base_names(
+    obj: Any,
+    names: Optional[Set[str]] = None
+) -> Set[str]:
+    names = set() if names is None else names
+    if isinstance(obj, type):
+        if obj == object:
+            return set()
+        names.add(obj.__module__ + '.' + obj.__name__)
+    else:
+        names.add(obj.__class__.__module__ + '.' + obj.__class__.__name__)
+    if isinstance(obj, type):
+        bases = obj.__bases__
+    else:
+        bases = obj.__class__.__bases__
+    for base in bases:
+        get_qualified_base_names(base, names)
+    return names
 
 def getenv(name: str, vartype: type = str) -> Any:
     value = os.getenv(name)
@@ -200,3 +228,26 @@ def get_calling_modules() -> List[str]:
             modules.append(name)
         frame = frame.f_back
     return modules
+
+def get_pagesize():
+    if platform.system() == 'Windows':
+        class SystemInfo(Structure):
+            _fields_ = [
+                ("wProcessorArchitecture", WORD),
+                ("wReserved", WORD),
+                ("dwPageSize", DWORD),
+                ("lpMinimumApplicationAddress", LPVOID),
+                ("lpMaximumApplicationAddress", LPVOID),
+                ("dwActiveProcessorMask", DWORD),
+                ("dwNumberOfProcessors", DWORD),
+                ("dwProcessorType", DWORD),
+                ("dwAllocationGranularity", DWORD),
+                ("wProcessorLevel", WORD),
+                ("wProcessorRevision", WORD),
+            ]
+        system_info = SystemInfo()
+        windll.kernel32.GetSystemInfo(byref(system_info))
+        return system_info.dwPageSize
+    if platform.system() == 'Unix':
+        return resource.getpagesize()
+    raise NotImplementedError()

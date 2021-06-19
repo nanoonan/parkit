@@ -1,4 +1,7 @@
-# pylint: disable = broad-except, invalid-name
+# pylint: disable = broad-except
+#
+# reviewed: 6/16/21
+#
 import contextlib
 import logging
 
@@ -10,24 +13,22 @@ import lmdb
 
 import parkit.storage.threadlocal as thread
 
-from parkit.storage.threadlocal import CursorDict
-
 logger = logging.getLogger(__name__)
 
 @contextlib.contextmanager
 def transaction_context(
     env: lmdb.Environment,
+    *,
     write: bool = False,
-    buffers: bool = True,
     iterator: bool = False
-) -> Iterator[Tuple[lmdb.Transaction, CursorDict, Set[Any]]]:
+) -> Iterator[Tuple[lmdb.Transaction, thread.CursorDict, Set[Any]]]:
     assert write and not iterator or not write
     stack_changed = False
     stack = thread.local.context.stacks[env]
     if not stack or \
     stack[-1].iterator or \
-    write and not stack[-1].iterator and not stack[-1].write:
-        thread.local.context.push(env, write, buffers, iterator)
+    write and not stack[-1].write:
+        thread.local.context.push(env, write, iterator)
         stack_changed = True
     try:
         error = None
