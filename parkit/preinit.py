@@ -1,3 +1,4 @@
+import logging
 import os
 import tempfile
 import uuid
@@ -14,10 +15,13 @@ from parkit.utility import (
     setenv
 )
 
-setenv(
-    constants.PROCESS_UUID_ENVNAME,
-    str(uuid.uuid4())
-)
+logger = logging.getLogger(__name__)
+
+if not envexists(constants.PROCESS_UID_ENVNAME):
+    setenv(
+        constants.PROCESS_UID_ENVNAME,
+        str(uuid.uuid4())
+    )
 
 if not envexists(constants.GLOBAL_FILE_LOCK_PATH_ENVNAME):
     path = os.path.abspath(os.path.join(
@@ -36,13 +40,18 @@ else:
     path = os.path.abspath(getenv(constants.GLOBAL_SITE_STORAGE_PATH_ENVNAME, str))
     setenv(constants.GLOBAL_SITE_STORAGE_PATH_ENVNAME, path)
 
-for name, default in get_lmdb_profiles()['default'].copy().items():
-    if envexists(name):
-        if checkenv(name, type(default)):
-            cast(dict, get_lmdb_profiles())['default'][name] = getenv(name, type(default))
+for profile_name in get_lmdb_profiles():
+    for name, default in cast(dict, get_lmdb_profiles())[profile_name].copy().items():
+        if envexists('_'.join([profile_name.upper(), name])):
+            if checkenv('_'.join([profile_name.upper(), name]), type(default)):
+                cast(dict, get_lmdb_profiles())[profile_name][name] = \
+                getenv('_'.join([profile_name.upper(), name]), type(default))
 
 if not envexists(constants.CLUSTER_CONCURRENCY_ENVNAME):
     setenv(constants.CLUSTER_CONCURRENCY_ENVNAME, str(constants.DEFAULT_CLUSTER_CONCURRENCY))
+
+if not envexists(constants.MAX_SYSLOG_ENTRIES_ENVNAME):
+    setenv(constants.MAX_SYSLOG_ENTRIES_ENVNAME, str(constants.DEFAULT_MAX_SYSLOG_ENTRIES))
 
 if not envexists(constants.PROCESS_TERMINATION_TIMEOUT_ENVNAME):
     setenv(

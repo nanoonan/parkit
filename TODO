@@ -1,10 +1,12 @@
 0.0.10
 - code review
+- update docs
 
 0.0.11
 - unsupported ops File class
 - site imports for cluster processes
 - performance
 - replace file observer?
-- override profile envvars for LMDB
 - should have a max concurrency limit
+- tasks with external dependencies not reloaded when only dependency changed
+    - use modulefinder?

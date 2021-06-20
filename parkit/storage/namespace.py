@@ -9,7 +9,10 @@ from typing import (
 
 import parkit.storage.threadlocal as thread
 
-from parkit.exceptions import SiteNotSpecifiedError
+from parkit.exceptions import (
+    ObjectNotFoundError,
+    SiteNotSpecifiedError
+)
 from parkit.storage.context import transaction_context
 from parkit.storage.entities import (
     descriptor_iter,
@@ -107,7 +110,7 @@ class Namespace():
             )
             if obj is not None:
                 return obj
-            raise KeyError()
+            raise ObjectNotFoundError()
 
     def metadata(
         self,

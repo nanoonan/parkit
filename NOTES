@@ -1,3 +1,12 @@
+* Module Dependencies
+
+[parkit.tools, parkit.daemons]
+[parkit (bind, compactify, directory, preinit, postinit)] API Layer
+[parkit.system]
+[parkit.adapters]
+[parkit.storage]
+[parkit (constants, exceptions, node, profiles, typeddicts, utility)]
+
 * Default DB Layout
 
 root environment:

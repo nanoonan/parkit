@@ -7,7 +7,6 @@ import time
 
 import parkit.constants as constants
 
-from parkit.adapters.dict import Dict
 from parkit.adapters.queue import Queue
 from parkit.storage.context import transaction_context
 from parkit.storage.environment import get_environment_threadsafe
@@ -35,8 +34,6 @@ if __name__ == '__main__':
             create = False
         )
 
-        running_dict = Dict(constants.RUNNING_DICT_PATH)
-
         termination_queue = Queue(constants.NODE_TERMINATION_QUEUE_PATH)
 
         polling_interval = getenv(constants.WORKER_POLLING_INTERVAL_ENVNAME, float)
@@ -58,7 +55,6 @@ if __name__ == '__main__':
                                 execution._status = 'running'
                                 execution._pid = os.getpid()
                                 execution._node_uid = node_uid
-                                running_dict[execution.name] = execution
                             else:
                                 continue
                     else:
@@ -80,7 +76,6 @@ if __name__ == '__main__':
                         ('failed' if error is not None else 'finished') \
                         if execution._status != 'cancelled' else 'cancelled'
                         execution._end_timestamp = time.time_ns()
-                        del running_dict[execution.name]
 
     except (SystemExit, KeyboardInterrupt, GeneratorExit):
         pass

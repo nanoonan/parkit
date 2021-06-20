@@ -8,7 +8,6 @@ import os
 import platform
 import sys
 import subprocess
-import uuid
 
 from typing import (
     Dict, List, Optional
@@ -148,14 +147,13 @@ def terminate_node(
         logger.exception('error terminating node')
 
 def launch_node(
-    node_type: str,
+    node_uid: str,
     node_module: str,
     cluster_uid: str,
     environment: Optional[Dict[str, str]] = None
-):
-    if not node_type or not node_module or not cluster_uid:
+) -> int:
+    if not node_uid or not node_module or not cluster_uid:
         raise ValueError()
-    node_uid =  '-'.join([node_type, str(uuid.uuid4())])
     module = importlib.import_module(node_module)
     path = os.path.abspath(module.__file__)
 
@@ -170,18 +168,16 @@ def launch_node(
                         constants.NODE_UID_ENVNAME, constants.CLUSTER_UID_ENVNAME,
                     ]:
                         env[name] = value
-            if platform.system() == 'Windows':
-                create_new_process_group = 0x00000200
-                detached_process = 0x00000008
-                subprocess.Popen(
-                    [sys.executable, path], env = env,
-                    stdin = subprocess.DEVNULL, stderr = subprocess.STDOUT,
-                    stdout = subprocess.DEVNULL,
-                    creationflags = detached_process | create_new_process_group
-                )
-            else:
-                raise NotImplementedError()
-        except Exception:
+            create_new_process_group = 0x00000200
+            detached_process = 0x00000008
+            return subprocess.Popen(
+                [sys.executable, path], env = env,
+                stdin = subprocess.DEVNULL, stderr = subprocess.STDOUT,
+                stdout = subprocess.DEVNULL,
+                creationflags = detached_process | create_new_process_group
+            ).pid
+        except Exception as exc:
             logger.error('error launching node')
+            raise exc
     else:
         raise NotImplementedError()

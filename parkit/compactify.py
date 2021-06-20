@@ -3,7 +3,7 @@ import logging
 import parkit.constants as constants
 
 from parkit.adapters.asyncexecution import AsyncExecution
-from parkit.api.directory import directories
+from parkit.directory import directories
 from parkit.exceptions import StoragePathError
 
 logger = logging.getLogger(__name__)

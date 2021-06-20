@@ -28,6 +28,7 @@ from parkit.utility import (
     create_string_digest,
     envexists,
     getenv,
+    resolve_path,
     setenv
 )
 
@@ -208,21 +209,27 @@ class Task(Object):
 
 def task(
     *args,
-    name: Optional[str] = None,
-    qualify_name: bool = False,
+    path: Optional[str] = None,
+    fullpath: bool = False,
     metadata: Optional[Dict[str, Any]] = None,
     default_sync: Optional[bool] = None,
     site_uuid: Optional[str] = None
 ) -> Union[Task, Callable[[Callable[..., Any]], Task]]:
 
-    def setup(name, target):
-        if not name:
-            if qualify_name:
-                name = '.'.join([target.__module__, target.__name__])
+    def setup(path, target):
+        if not path:
+            if fullpath:
+                namespace = target.__module__.replace('.', '/')
+                name = target.__name__
+                path = '/'.join([constants.MODULE_NAMESPACE, namespace, name])
             else:
                 name = target.__name__
+                path = '/'.join([constants.MODULE_NAMESPACE, name])
+        else:
+            namespace, name = resolve_path(path)
+            path = '/'.join([constants.MODULE_NAMESPACE, namespace, name])
         return Task(
-            '/'.join([constants.MODULE_NAMESPACE, name]), target = target,
+            path, target = target,
             default_sync = default_sync, metadata = metadata,
             site_uuid = site_uuid
         )
@@ -231,33 +238,33 @@ def task(
 
     if args:
         target = args[0]
-        return setup(name, target)
+        return setup(path, target)
 
     def decorator(target):
-        return setup(name, target)
+        return setup(path, target)
 
     return decorator
 
-def bind_task(
-    name: str,
-    site_uuid: Optional[str] = None
-):
-    return Task('/'.join([constants.MODULE_NAMESPACE, name]), site_uuid = site_uuid)
+# def bind_task(
+#     name: str,
+#     site_uuid: Optional[str] = None
+# ):
+#     return Task('/'.join([constants.MODULE_NAMESPACE, name]), site_uuid = site_uuid)
 
-def create_task(
-    target: Callable[..., Any],
-    /, *,
-    name: Optional[str] = None,
-    qualify_name: bool = False,
-    metadata: Optional[Dict[str, Any]] = None,
-    site_uuid: Optional[str] = None
-) -> Task:
-    if not name:
-        if qualify_name:
-            name = '.'.join([target.__module__, target.__name__])
-        else:
-            name = target.__name__
-    return Task(
-        '/'.join([constants.MODULE_NAMESPACE, name]),
-        target = target, metadata = metadata, site_uuid = site_uuid
-    )
+# def create_task(
+#     target: Callable[..., Any],
+#     /, *,
+#     name: Optional[str] = None,
+#     qualify_name: bool = False,
+#     metadata: Optional[Dict[str, Any]] = None,
+#     site_uuid: Optional[str] = None
+# ) -> Task:
+#     if not name:
+#         if qualify_name:
+#             name = '.'.join([target.__module__, target.__name__])
+#         else:
+#             name = target.__name__
+#     return Task(
+#         '/'.join([constants.MODULE_NAMESPACE, name]),
+#         target = target, metadata = metadata, site_uuid = site_uuid
+#     )

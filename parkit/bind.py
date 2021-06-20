@@ -5,7 +5,8 @@ from typing import (
     List, Optional, Union
 )
 
-from parkit.api.directory import directories
+from parkit.directory import directories
+from parkit.exceptions import ObjectNotFoundError
 from parkit.storage.entity import Entity
 from parkit.storage.namespace import Namespace
 from parkit.utility import get_calling_modules
@@ -34,7 +35,7 @@ def bind_symbol(
         namespace = Namespace(namespace, site_uuid = site_uuid)
     try:
         return bind_entity_to_symbol(namespace[name], overwrite = overwrite)
-    except KeyError:
+    except ObjectNotFoundError:
         pass
     return False
 

@@ -1,10 +1,10 @@
 # pylint: disable = broad-except, protected-access, invalid-name
 import logging
 import os
+import uuid
 
 import parkit.constants as constants
 
-from parkit.adapters.dict import Dict
 from parkit.adapters.queue import Queue
 from parkit.node import (
     is_running,
@@ -13,7 +13,7 @@ from parkit.node import (
 )
 from parkit.storage.site import get_default_site
 from parkit.system.cluster import get_concurrency
-from parkit.system.pidtable import get_pidtable_snapshot
+from parkit.system.pidtable import pidtable
 from parkit.utility import (
     getenv,
     polling_loop
@@ -34,8 +34,6 @@ if __name__ == '__main__':
 
         termination_queue = Queue(constants.NODE_TERMINATION_QUEUE_PATH)
 
-        running_dict = Dict(constants.RUNNING_DICT_PATH)
-
         for i in polling_loop(polling_interval):
 
             try:
@@ -46,16 +44,16 @@ if __name__ == '__main__':
 
                 pre_scan_termination_count = len(termination_queue)
 
-                snapshot = get_pidtable_snapshot()
+                snapshot = pidtable.get_snapshot()
 
                 monitor_nodes = sorted([
-                    (pid, entry['node_uid'].split('-')[1], entry['node_uid']) \
+                    (pid, int(entry['node_uid'].split('-')[1]), entry['node_uid']) \
                     for pid, entry in snapshot.items() \
                     if isinstance(entry['node_uid'], str) and \
                     entry['node_uid'].split('-')[0] == 'monitor' and \
                     isinstance(entry['cluster_uid'], str) and \
                     entry['cluster_uid'] == cluster_uid
-                ], key = lambda x: x[1])
+                ], key = lambda entry: entry[1])
 
                 assert node_uid in [entry[2] for entry in monitor_nodes]
 
@@ -78,7 +76,7 @@ if __name__ == '__main__':
                 post_scan_termination_count = len(termination_queue)
 
                 worker_nodes = [
-                    entry['node_uid'] for _, entry in snapshot.items() \
+                    entry['node_uid'] for entry in snapshot.values() \
                     if isinstance(entry['node_uid'], str) and \
                     entry['node_uid'].split('-')[0] == 'worker' and \
                     isinstance(entry['cluster_uid'], str) and \
@@ -98,20 +96,30 @@ if __name__ == '__main__':
                     assert default_site is not None
                     storage_path, _ = default_site
                     for j in range(post_scan_delta):
-                        launch_node(
-                            'worker',
-                            'parkit.system.workerdaemon',
+                        worker_node_uid = '-'.join([
+                            constants.WORKER_DAEMON_MODULE.split('.')[-1],
+                            str(uuid.uuid4())
+                        ])
+                        process_uid = str(uuid.uuid4())
+                        pid = launch_node(
+                            worker_node_uid,
+                            constants.WORKER_DAEMON_MODULE,
                             cluster_uid,
                             {
-                                constants.DEFAULT_SITE_PATH_ENVNAME: storage_path
+                                constants.DEFAULT_SITE_PATH_ENVNAME: storage_path,
+                                constants.PROCESS_UID_ENVNAME: process_uid
                             }
+                        )
+                        pidtable.set_pid_entry(
+                            pid = pid, process_uid = process_uid,
+                            node_uid = worker_node_uid, cluster_uid = cluster_uid
                         )
                 elif pre_scan_delta < 0:
                     for j in range(abs(pre_scan_delta)):
                         termination_queue.put(True)
 
                 scheduler_nodes = [
-                    entry['node_uid'] for _, entry in snapshot.items() \
+                    entry['node_uid'] for entry in snapshot.values() \
                     if isinstance(entry['node_uid'], str) and \
                     entry['node_uid'].split('-')[0] == 'scheduler' and \
                     isinstance(entry['cluster_uid'], str) and \
@@ -122,29 +130,27 @@ if __name__ == '__main__':
                     default_site = get_default_site()
                     assert default_site is not None
                     storage_path, _ = default_site
+                    scheduler_node_uid = '-'.join([
+                        constants.SCHEDULER_DAEMON_MODULE.split('.')[-1],
+                        str(uuid.uuid4())
+                    ])
+                    process_uid = str(uuid.uuid4())
                     launch_node(
-                        'scheduler',
-                        'parkit.system.scheddaemon',
+                        scheduler_node_uid,
+                        constants.SCHEDULER_DAEMON_MODULE,
                         cluster_uid,
                         {
-                            constants.DEFAULT_SITE_PATH_ENVNAME: storage_path
+                            constants.DEFAULT_SITE_PATH_ENVNAME: storage_path,
+                            constants.PROCESS_UID_ENVNAME: process_uid
                         }
+                    )
+                    pidtable.set_pid_entry(
+                        pid = pid, process_uid = process_uid,
+                        node_uid = scheduler_node_uid, cluster_uid = cluster_uid
                     )
                 elif len(scheduler_nodes) > 1:
                     for uid in scheduler_nodes[1:]:
                         terminate_node(uid)
-
-                #
-                # Clear crashed executions from running
-                #
-                for name in running_dict.keys():
-                    try:
-                        execution = running_dict[name]
-                        if execution.status == 'crashed':
-                            execution._status = 'crashed'
-                            del running_dict[name]
-                    except KeyError:
-                        pass
 
             except Exception:
                 logger.exception('(monitor) error on pid %i', os.getpid())
