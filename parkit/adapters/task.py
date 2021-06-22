@@ -226,7 +226,7 @@ def task(
                 name = target.__name__
                 path = '/'.join([constants.MODULE_NAMESPACE, name])
         else:
-            namespace, name = resolve_path(path)
+            namespace, name, _ = resolve_path(path)
             path = '/'.join([constants.MODULE_NAMESPACE, namespace, name])
         return Task(
             path, target = target,

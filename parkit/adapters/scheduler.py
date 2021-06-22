@@ -1,4 +1,3 @@
-# pylint: disable = invalid-name
 import datetime
 import enum
 import logging
@@ -23,16 +22,16 @@ from parkit.utility import resolve_path
 logger = logging.getLogger(__name__)
 
 class Frequency(enum.Enum):
-    Nanosecond = 0
-    Microsecond = 1
-    Millisecond = 2
-    Second = 3
-    Minute = 4
-    Hour = 5
-    Day = 6
-    Week = 7
-    Month = 8
-    Year = 9
+    NANOSECOND = 0
+    MICROSECOND = 1
+    MILLISECOND = 2
+    SECOND = 3
+    MINUTE = 4
+    HOUR = 5
+    DAY = 6
+    WEEK = 7
+    MONTH = 8
+    YEAR = 9
 
 class Scheduler(Object):
 
@@ -46,13 +45,13 @@ class Scheduler(Object):
         on_init: Optional[Callable[[bool], None]] = None,
         site_uuid: Optional[str] = None,
         create: bool = True,
-        bind: bool = True
+        bind: bool = False
     ):
         self.__task: Task
         self.__args: Tuple[Any, ...]
         self.__kwargs: Dict[str, Any]
 
-        namespace, _ = resolve_path(path)
+        namespace, _, _ = resolve_path(path)
 
         if namespace != constants.SCHEDULER_NAMESPACE:
             raise ValueError()
@@ -116,11 +115,11 @@ def schedulers(site_uuid: Optional[str] = None) -> Iterator[Scheduler]:
             yield scheduler
 
 frequency_ns = {
-    Frequency.Second.value: 1e9,
-    Frequency.Minute.value: 1e9 * 60,
-    Frequency.Hour.value: 1e9 * 3600,
-    Frequency.Day.value: 1e9 * 86400,
-    Frequency.Week.value: 1e9 * 604800
+    Frequency.SECOND.value: 1e9,
+    Frequency.MINUTE.value: 1e9 * 60,
+    Frequency.HOUR.value: 1e9 * 3600,
+    Frequency.DAY.value: 1e9 * 86400,
+    Frequency.WEEK.value: 1e9 * 604800
 }
 
 def get_interval(frequency: Frequency, period: float):
@@ -143,7 +142,7 @@ class Periodic(Scheduler):
         max_times: Optional[int] = None,
         site_uuid: Optional[str] = None,
         create: bool = True,
-        bind: bool = True
+        bind: bool = False
     ):
         self.__count: int
         self.__last_run_ns: Optional[int]
@@ -154,7 +153,7 @@ class Periodic(Scheduler):
         self.__frequency: Frequency
         self.__max_times: int
 
-        frequency = Frequency.Minute if frequency is None else frequency
+        frequency = Frequency.MINUTE if frequency is None else frequency
         period = 1. if period is None else period
         if not (max_times is None or max_times > 0):
             raise ValueError()

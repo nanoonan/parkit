@@ -45,22 +45,16 @@ class Object(Entity, metaclass = EntityMeta):
         site_uuid: Optional[str] = None,
         db_properties: Optional[List[LMDBProperties]] = None,
         on_init: Optional[Callable[[bool], None]] = None,
-        create: bool = True,
+        create: bool = False,
         bind: bool = True
     ):
-        if not path:
-            path = '/'.join([
-                constants.DEFAULT_NAMESPACE,
-                ''.join(['__', str(uuid.uuid4()), '__'])
-            ])
-            create = True
-            bind = False
-        namespace, name = resolve_path(path)
+        namespace, name, anonymous = resolve_path(path)
         super().__init__(
             namespace, name, db_properties = db_properties,
             versioned = versioned, metadata = metadata,
             site_uuid = site_uuid, on_init = on_init,
-            create = create, bind = bind
+            create = True if anonymous else create,
+            bind = False if anonymous else bind
         )
 
     def __getattr__(

@@ -131,7 +131,7 @@ class Array(Sized, metaclass = ArrayMeta):
         metadata: Optional[Dict[str, Any]] = None,
         site_uuid: Optional[str] = None,
         on_init: Optional[Callable[[bool], None]] = None,
-        create: bool = True,
+        create: bool = False,
         bind: bool = True,
         maxsize: int = 0
     ):

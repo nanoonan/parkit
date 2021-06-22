@@ -38,7 +38,8 @@ class PidTable(Dict):
 
         super().__init__(
             constants.PIDTABLE_DICT_PATH, on_init = on_init,
-            site_uuid = get_site_uuid(getenv(constants.GLOBAL_SITE_STORAGE_PATH_ENVNAME, str))
+            site_uuid = get_site_uuid(getenv(constants.GLOBAL_SITE_STORAGE_PATH_ENVNAME, str)),
+            create = True, bind = True
         )
 
     def __enter__(self):

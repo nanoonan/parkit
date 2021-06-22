@@ -58,7 +58,7 @@ class Entity(metaclass = EntityMeta):
         namespace: str,
         name: str,
         /, *,
-        create: bool = True,
+        create: bool = False,
         bind: bool = True,
         db_properties: Optional[List[LMDBProperties]] = None,
         versioned: bool = False,
@@ -417,9 +417,9 @@ class Entity(metaclass = EntityMeta):
         return result
 
     @property
-    def version(self) -> Optional[int]:
+    def version(self) -> int:
         if not self._versioned:
-            return None
+            return 0
         try:
             txn, cursors, _, implicit = \
             thread.local.context.get(self._env, write = False)

@@ -145,16 +145,18 @@ def resolve_name(name: str) -> str:
         return name
     raise ValueError()
 
-def resolve_path(path: Optional[str]) -> Tuple[str, str]:
+def resolve_path(path: Optional[str]) -> Tuple[str, str, bool]:
     if not path:
         return (
             constants.DEFAULT_NAMESPACE,
-            ''.join(['__', str(uuid.uuid4()), '__'])
+            ''.join(['__', str(uuid.uuid4()), '__']),
+            True
         )
     if path == constants.MEMORY_NAMESPACE:
         return (
             constants.MEMORY_NAMESPACE,
-            ''.join(['__', str(uuid.uuid4()), '__'])
+            ''.join(['__', str(uuid.uuid4()), '__']),
+            True
         )
     segments = [segment for segment in path.split('/') if len(segment)]
     if segments and \
@@ -166,8 +168,8 @@ def resolve_path(path: Optional[str]) -> Tuple[str, str]:
         if segments[-1].isascii() and \
         segments[-1].replace('_', '').replace('-', '').isalnum():
             return \
-            (constants.DEFAULT_NAMESPACE, segments[0]) if len(segments) == 1 else \
-            ('/'.join(segments[0:-1]), segments[-1])
+            (constants.DEFAULT_NAMESPACE, segments[0], False) if len(segments) == 1 else \
+            ('/'.join(segments[0:-1]), segments[-1], False)
     raise ValueError()
 
 def resolve_namespace(namespace: Optional[str]) -> str:

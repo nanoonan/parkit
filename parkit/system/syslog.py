@@ -16,7 +16,8 @@ import_site(getenv(constants.GLOBAL_SITE_STORAGE_PATH_ENVNAME, str), create = Tr
 syslog: Array = Array(
     constants.SYSLOG_PATH,
     maxsize = getenv(constants.MAX_SYSLOG_ENTRIES_ENVNAME, int),
-    site_uuid = get_site_uuid(getenv(constants.GLOBAL_SITE_STORAGE_PATH_ENVNAME, str))
+    site_uuid = get_site_uuid(getenv(constants.GLOBAL_SITE_STORAGE_PATH_ENVNAME, str)),
+    create = True, bind = True
 )
 
 class LogHandler(logging.StreamHandler):

@@ -26,7 +26,10 @@ from parkit.utility import getenv
 logger = logging.getLogger(__name__)
 
 def get_concurrency(*, site_uuid: Optional[str] = None) -> int:
-    state = Dict(constants.CLUSTER_STATE_DICT_PATH, site_uuid = site_uuid)
+    state = Dict(
+        constants.CLUSTER_STATE_DICT_PATH, site_uuid = site_uuid,
+        create = True, bind = True
+    )
     _, env, _, _, _, _ = get_environment_threadsafe(
         state.storage_path, state.namespace, create = False
     )
@@ -42,7 +45,10 @@ def set_concurrency(
 ):
     if value < 1:
         raise ValueError()
-    state = Dict(constants.CLUSTER_STATE_DICT_PATH, site_uuid = site_uuid)
+    state = Dict(
+        constants.CLUSTER_STATE_DICT_PATH, site_uuid = site_uuid,
+        create = True, bind = True
+    )
     state['concurrency'] = value
 
 def enable_tasks(*, site_uuid: Optional[str] = None) -> bool:

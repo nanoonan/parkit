@@ -37,7 +37,7 @@ class FileIO(Object):
         self,
         path: Optional[str] = None,
         /, *,
-        create: bool = True,
+        create: bool = False,
         bind: bool = True,
         mode: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,

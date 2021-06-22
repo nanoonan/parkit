@@ -102,7 +102,7 @@ class Dict(Sized, metaclass = DictMeta):
         metadata: Optional[typing.Dict[str, Any]] = None,
         site_uuid: Optional[str] = None,
         on_init: Optional[Callable[[bool], None]] = None,
-        create: bool = True,
+        create: bool = False,
         bind: bool = True
     ):
         super().__init__(
