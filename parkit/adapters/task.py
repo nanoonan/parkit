@@ -1,270 +1,213 @@
-# pylint: disable = unused-argument
-import functools
-import importlib
-import importlib.abc
-import importlib.util
-import inspect
+#
+# reviewed: 6/14/21
+#
 import logging
-import os
 import pickle
-import types
+import time
+import uuid
 
 from typing import (
-    Any, Dict, Callable, Iterator, Optional, Tuple, Union
+    Any, ByteString, Callable, cast, Dict, Optional, Tuple
 )
 
 import cloudpickle
 
+from cacheout.lru import LRUCache
+
 import parkit.constants as constants
 
-from parkit.adapters.asyncexecution import AsyncExecution
 from parkit.adapters.object import Object
-from parkit.adapters.fileobserver import FileObserver
-from parkit.exceptions import ObjectNotFoundError
-from parkit.storage.context import transaction_context
-from parkit.storage.environment import get_environment_threadsafe
-from parkit.storage.namespace import Namespace
-from parkit.utility import (
-    create_string_digest,
-    envexists,
-    getenv,
-    resolve_path,
-    setenv
+from parkit.adapters.queue import Queue
+from parkit.node import (
+    is_running,
+    terminate_node
 )
+from parkit.storage.context import transaction_context
+from parkit.utility import getenv
 
 logger = logging.getLogger(__name__)
 
-file_observer = FileObserver()
-
 class Task(Object):
 
-    _target_function: Optional[Callable[..., Any]] = None
+    _running_cache: LRUCache = LRUCache(
+        maxsize = constants.RUNNING_CACHE_MAXSIZE,
+        ttl = constants.RUNNING_CACHE_TTL
+    )
+
+    encode_attr_value: Optional[Callable[..., ByteString]] = \
+    cast(Callable[..., ByteString], staticmethod(cloudpickle.dumps))
+
+    decode_attr_value: Optional[Callable[..., Any]] = \
+    cast(Callable[..., Any], staticmethod(cloudpickle.loads))
 
     def __init__(
         self,
         path: Optional[str] = None,
         /, *,
-        target: Optional[Callable[..., Any]] = None,
-        default_sync: Optional[bool] = None,
+        asyncable: Optional[Object] = None,
+        args: Optional[Tuple[Any, ...]] = None,
+        kwargs: Optional[Dict[str, Any]] = None,
         metadata: Optional[Dict[str, Any]] = None,
         site_uuid: Optional[str] = None,
         create: bool = True,
         bind: bool = True
     ):
-        self.__latest: Optional[Tuple[str, Union[bytes, Tuple[str, str]]]]
-        self.__default_sync: bool
-
-        if target:
-            module = inspect.getmodule(target)
-            if not hasattr(module, '__file__'):
-                bytecode = cloudpickle.dumps(target)
-                digest = '-'.join([
-                    'bytecode',
-                    create_string_digest(bytecode)
-                ])
-            else:
-                assert isinstance(module, types.ModuleType)
-                digest = file_observer.get_digest(
-                    module.__name__,
-                    target.__name__
-                )
-
-        def load_target():
-            if target:
-                self._target_function = target
-                if not hasattr(module, '__file__'):
-                    if self.__latest is None or self.__latest[0] != digest:
-                        self.__latest = (digest, bytecode)
-                else:
-                    if self.__latest is None or self.__latest[0] != digest:
-                        self.__latest = (
-                            digest, (
-                                module.__name__,
-                                self._target_function.__name__
-                            )
-                        )
+        self._status: str
+        self._result: Any
+        self._error: Any
+        self._created_timestamp: int
+        self._start_timestamp: Optional[int]
+        self._end_timestamp: Optional[int]
+        self._pid: Optional[int]
+        self._node_uid: Optional[str]
+        self._asyncable: Object
+        self._asyncable_uuid: str
+        self._args: Tuple[Any, ...]
+        self._kwargs: Dict[str, Any]
 
         def on_init(created: bool):
             if created:
-                self.__default_sync = default_sync if default_sync is not None else False
-                self.__latest = None
-                load_target()
-            else:
-                with transaction_context(self._env, write = True):
-                    if default_sync is not None:
-                        self.__default_sync = default_sync
-                    load_target()
+                if asyncable is None:
+                    raise ValueError()
+                with transaction_context(self._env, write = True) as (txn, _, _):
+                    self._status = 'submitted'
+                    self._result = None
+                    self._error = None
+                    self._created_timestamp = time.time_ns()
+                    self._start_timestamp = None
+                    self._end_timestamp = None
+                    self._pid = None
+                    self._node_uid = None
+                    self._asyncable = asyncable
+                    self._asyncable_uuid = asyncable.uuid
+                    self._args = args if args is not None else ()
+                    self._kwargs = kwargs if kwargs is not None else {}
+                    key1 = ':'.join([asyncable.uuid, self.name])
+                    key2 = ':'.join([self.name, asyncable.uuid])
+                    assert txn.put(key = key1.encode('utf-8'), value = b'', append = False)
+                    assert txn.put(key = key2.encode('utf-8'), value = b'', append = False)
+                    submit_queue = Queue(constants.SUBMIT_QUEUE_PATH, create = True)
+                    submit_queue.put(self)
+
+        if path is None:
+            path = '/'.join([
+                constants.TASK_NAMESPACE,
+                str(uuid.uuid4())
+            ])
 
         super().__init__(
-            path,
-            on_init = on_init, metadata = metadata,
-            site_uuid = site_uuid, create = create, bind = bind
+            path, metadata = metadata, site_uuid = site_uuid, on_init = on_init,
+            create = create, bind = bind
         )
 
-    @functools.lru_cache(None)
-    def __bytecode_cache(self, target_digest: str) -> Callable[..., Any]:
-        assert isinstance(self.__latest, tuple) and isinstance(self.__latest[1], bytes)
-        return cloudpickle.loads(self.__latest[1])
+    @property
+    def asyncable(self) -> Object:
+        return self._asyncable
 
-    @functools.lru_cache(None)
-    def __module_cache(self, target_digest: str) -> Callable[..., Any]:
-        assert isinstance(self.__latest, tuple) and isinstance(self.__latest[1], tuple)
-        module_name, function_name = self.__latest[1]
-        spec = importlib.util.find_spec(module_name)
-        if spec is None:
-            raise ModuleNotFoundError(module_name)
-        assert isinstance(spec.loader, importlib.abc.Loader)
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        logger.info(
-            'reloaded %s.%s on pid %i',
-            module_name, function_name, os.getpid()
-        )
-        if isinstance(getattr(module, function_name), Task):
-            return getattr(module, function_name).function
-        return getattr(module, function_name)
+    @property
+    def created(self) -> int:
+        return self._created_timestamp
 
-    def invoke(
-        self,
-        /, *,
-        args: Optional[Tuple[Any, ...]] = None,
-        kwargs: Optional[Dict[str, Any]] = None
-    ) -> Any:
-        assert self.__latest is not None
+    @property
+    def start(self) -> Optional[int]:
+        return self._start_timestamp
+
+    @property
+    def end(self) -> Optional[int]:
+        return self._end_timestamp
+
+    @property
+    def args(self) -> Tuple[Any, ...]:
+        return self._args
+
+    @property
+    def kwargs(self) -> Dict[str, Any]:
+        return self._kwargs
+
+    @property
+    def pid(self) -> Optional[int]:
+        return self._pid
+
+    @property
+    def running(self) -> bool:
+        return self.status == 'running'
+
+    @property
+    def done(self) -> bool:
+        return self.status in ['finished', 'failed', 'crashed']
+
+    @property
+    def result(self) -> Optional[Any]:
+        return self._result
+
+    @property
+    def error(self) -> Optional[Any]:
+        return self._error
+
+    @property
+    def status(self) -> str:
         with transaction_context(self._env, write = False):
-            target_digest, _ = self.__latest
-            if target_digest.startswith('bytecode'):
-                target = self.__bytecode_cache(target_digest)
-            else:
-                target = self.__module_cache(target_digest)
-        try:
-            restore = getenv(constants.SELF_ENVNAME, str) \
-            if envexists(constants.SELF_ENVNAME) else None
-            setenv(
-                constants.SELF_ENVNAME,
-                pickle.dumps(self, 0).decode()
-            )
-            args = () if args is None else args
-            kwargs = {} if kwargs is None else kwargs
-            return target(*args, **kwargs)
-        finally:
-            setenv(
-                constants.SELF_ENVNAME,
-                restore
-            )
+            status = self._status
+            if status == 'running':
+                node_uid = self._node_uid
+                pid = self._pid
+                assert node_uid is not None and pid is not None
+                status = self._running_cache.get(
+                    (node_uid, pid),
+                    default = \
+                    lambda key: 'running' if is_running(key[0], key[1]) else 'crashed'
+                )
+                if status == 'crashed':
+                    self._running_cache.set(
+                        (node_uid, pid),
+                        'crashed',
+                        ttl = 0
+                    )
+            return status
 
-    @property
-    def function(self) -> Optional[Callable[..., Any]]:
-        return self._target_function
-
-    @property
-    def executions(self) -> Iterator[AsyncExecution]:
-        _, env, _, _, _, _ = get_environment_threadsafe(
-            self.storage_path,
-            constants.EXECUTION_NAMESPACE,
-            create = False
-        )
-        with transaction_context(env, write = False) as (txn, _, _):
+    def drop(self):
+        node_uid = pid = None
+        with transaction_context(self._env, write = True) as (txn, _, _):
+            if self._status == 'running':
+                node_uid = self._node_uid
+                pid = self._pid
+                assert node_uid is not None and pid is not None
             cursor = txn.cursor()
-            namespace = Namespace(constants.EXECUTION_NAMESPACE, site_uuid = self.site_uuid)
-            if cursor.set_range(self.uuid.encode('utf-8')):
-                while True:
-                    key_bytes = cursor.key()
-                    key_bytes = bytes(key_bytes) if isinstance(key_bytes, memoryview) else key_bytes
-                    key = key_bytes.decode('utf-8')
-                    if key.startswith(self.uuid):
-                        name = key.split(':')[1]
-                        try:
-                            entity = namespace.get(name)
-                            if isinstance(entity, AsyncExecution):
-                                yield entity
-                        except (KeyError, ObjectNotFoundError):
-                            pass
-                        if cursor.next():
-                            continue
-                    break
-
-    def __call__(
-        self,
-        *args,
-        **kwargs
-    ) -> Any:
-        sync = kwargs['sync'] if 'sync' in kwargs else None
-        kwargs = {
-            key: value for key, value in kwargs.items() \
-            if key not in ['sync']
-        }
-        if sync is None:
-            sync = self.__default_sync
-        if not sync:
-            return AsyncExecution(
-                task = self,
-                args = args,
-                kwargs = kwargs,
-                site_uuid = self.site_uuid,
-                create = True,
-                bind = False
+            assert cursor.set_range(self.name.encode('utf-8'))
+            key_bytes = cursor.key()
+            key_bytes = bytes(key_bytes) if isinstance(key_bytes, memoryview) else key_bytes
+            key = key_bytes.decode('utf-8')
+            assert key.startswith(self.name) and ':' in key
+            asyncable_uuid = key.split(':')[1]
+            assert txn.delete(key = ':'.join([asyncable_uuid, self.name]).encode('utf-8'))
+            assert txn.delete(key = ':'.join([self.name, asyncable_uuid]).encode('utf-8'))
+            super().drop()
+        if node_uid is not None:
+            terminate_node(
+                node_uid,
+                pid
             )
-        return self.invoke(args = args, kwargs = kwargs)
 
-def task(
-    *args,
-    path: Optional[str] = None,
-    fullpath: bool = False,
-    metadata: Optional[Dict[str, Any]] = None,
-    default_sync: Optional[bool] = None,
-    site_uuid: Optional[str] = None
-) -> Union[Task, Callable[[Callable[..., Any]], Task]]:
+    def cancel(self):
+        if self._status not in ['running', 'submitted']:
+            return
+        node_uid = pid = None
+        with transaction_context(self._env, write = True):
+            status = self._status
+            if status in ['submitted', 'running']:
+                self._status = 'cancelled'
+            if status == 'running':
+                node_uid = self._node_uid
+                pid = self._pid
+                assert node_uid is not None and pid is not None
+        if node_uid is not None:
+            terminate_node(
+                node_uid,
+                pid
+            )
 
-    def setup(path, target):
-        if not path:
-            if fullpath:
-                namespace = target.__module__.replace('.', '/')
-                name = target.__name__
-                path = '/'.join([constants.MODULE_NAMESPACE, namespace, name])
-            else:
-                name = target.__name__
-                path = '/'.join([constants.MODULE_NAMESPACE, name])
-        else:
-            namespace, name, _ = resolve_path(path)
-            path = '/'.join([constants.MODULE_NAMESPACE, namespace, name])
-        return Task(
-            path, target = target,
-            default_sync = default_sync, metadata = metadata,
-            site_uuid = site_uuid
-        )
-
-    target = None
-
-    if args:
-        target = args[0]
-        return setup(path, target)
-
-    def decorator(target):
-        return setup(path, target)
-
-    return decorator
-
-# def bind_task(
-#     name: str,
-#     site_uuid: Optional[str] = None
-# ):
-#     return Task('/'.join([constants.MODULE_NAMESPACE, name]), site_uuid = site_uuid)
-
-# def create_task(
-#     target: Callable[..., Any],
-#     /, *,
-#     name: Optional[str] = None,
-#     qualify_name: bool = False,
-#     metadata: Optional[Dict[str, Any]] = None,
-#     site_uuid: Optional[str] = None
-# ) -> Task:
-#     if not name:
-#         if qualify_name:
-#             name = '.'.join([target.__module__, target.__name__])
-#         else:
-#             name = target.__name__
-#     return Task(
-#         '/'.join([constants.MODULE_NAMESPACE, name]),
-#         target = target, metadata = metadata, site_uuid = site_uuid
-#     )
+def task() -> Optional[Task]:
+    try:
+        return pickle.loads(getenv(constants.SELF_ENVNAME, str).encode())
+    except ValueError:
+        return None

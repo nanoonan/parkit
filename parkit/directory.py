@@ -57,16 +57,3 @@ def directories(
                         include_hidden = include_hidden,
                         site_uuid = site_uuid
                     )
-
-def directory(
-    path: Optional[str] = None,
-    /, *,
-    create: bool = False,
-    site_uuid: Optional[str] = None,
-    include_hidden: bool = False
-) -> Namespace:
-    return Directory(
-        path, create = create,
-        site_uuid = site_uuid,
-        include_hidden = include_hidden
-    )

@@ -4,7 +4,6 @@
 #
 import logging
 import pickle
-import uuid
 
 from typing import (
     Any, Dict, ByteString, Callable, cast, Iterator, List, Optional

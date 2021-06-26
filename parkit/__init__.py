@@ -1,6 +1,12 @@
+import parkit.constants as constants
+
 import parkit.preinit
 
 from parkit.adapters.array import Array
+from parkit.adapters.asyncable import (
+    asyncable,
+    Asyncable
+)
 from parkit.adapters.dict import Dict
 from parkit.adapters.file import File
 from parkit.adapters.object import Object
@@ -10,8 +16,10 @@ from parkit.adapters.scheduler import (
     schedule,
     schedulers
 )
-from parkit.adapters.self import self
-from parkit.adapters.task import task
+from parkit.adapters.task import (
+    task,
+    Task
+)
 
 from parkit.bind import (
     bind_symbol,
@@ -19,11 +27,9 @@ from parkit.bind import (
 )
 from parkit.compactify import compactify
 from parkit.directory import (
-    directory,
     Directory,
     directories
 )
-
 from parkit.exceptions import (
     ObjectExistsError,
     ObjectNotFoundError,
@@ -32,9 +38,11 @@ from parkit.exceptions import (
     StoragePathError,
     TransactionError
 )
+from parkit.stream import stream
 
 from parkit.storage.site import (
     get_default_site,
+    get_site_uuid,
     import_site,
     set_default_site
 )
@@ -53,11 +61,12 @@ from parkit.system.cluster import (
     disable_tasks,
     enable_tasks,
     set_concurrency,
-    task_executions
+    tasks
 )
 
 from parkit.utility import (
     checkenv,
+    create_string_digest,
     envexists,
     get_memory_size,
     get_pagesize,

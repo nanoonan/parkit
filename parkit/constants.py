@@ -2,6 +2,9 @@ import multiprocessing
 
 from parkit.typeddicts import Profiles
 
+RUNNING_CACHE_MAXSIZE = 4096
+RUNNING_CACHE_TTL = 1.
+
 PROCESS_UID_ENVNAME: str = 'PARKIT_PROCESS_UID'
 
 KEY_SUFFIX_OBJECT_BINARY_ATTRIBUTE: str = '_binary'
@@ -73,13 +76,12 @@ ROOT_NAMESPACE: str = ''
 DEFAULT_NAMESPACE: str = 'default'
 MEMORY_NAMESPACE: str = 'memory'
 SCHEDULER_NAMESPACE: str = '__sched__'
-COUNTER_NAMESPACE: str = 'memory/counter'
-EXECUTION_NAMESPACE: str = '__exec__'
+TASK_NAMESPACE: str = '__task__'
 MODULE_NAMESPACE: str = 'module'
 
-SUBMIT_QUEUE_PATH: str = '__exec__/__submit_queue__'
-NODE_TERMINATION_QUEUE_PATH: str = '__exec__/__node_termination_queue__'
-CLUSTER_STATE_DICT_PATH: str = '__exec__/__cluster_state_dict__'
+SUBMIT_QUEUE_PATH: str = '__task__/__submit_queue__'
+NODE_TERMINATION_QUEUE_PATH: str = '__task__/__node_termination_queue__'
+CLUSTER_STATE_DICT_PATH: str = '__task__/__cluster_state_dict__'
 SYSLOG_PATH: str = 'memory/syslog/__syslog__'
 PIDTABLE_DICT_PATH: str = 'memory/pidtable/__pidtable__'
 

@@ -1,4 +1,5 @@
-* Module Dependencies
+Module Dependencies
+-------------------
 
 [parkit.tools, parkit.daemons]
 [parkit (bind, compactify, directory, preinit, postinit)] API Layer
@@ -7,7 +8,8 @@
 [parkit.storage]
 [parkit (constants, exceptions, node, profiles, typeddicts, utility)]
 
-* Default DB Layout
+Default DB Layout
+-----------------
 
 root environment:
     __uuid__
@@ -25,7 +27,8 @@ namespace environment:
         [<execution name>:<task uuid>]
         [<task uuid>:<execution name>]
 
-* Transaction Contexts
+Transaction Contexts
+--------------------
 
 Each namespace (directory) is separate transaction context. Within
 a namespace, transaction boundaries (for objects that belong to the

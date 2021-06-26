@@ -29,11 +29,11 @@ if __name__ == '__main__':
                 if isinstance(scheduler, Scheduler):
                     try:
                         if scheduler.is_scheduled():
-                            scheduler.task(*scheduler.args, **scheduler.kwargs)
+                            scheduler.asyncable(*scheduler.args, **scheduler.kwargs)
                     except ObjectNotFoundError:
                         pass
                     except Exception:
-                        logger.exception('error scheduling task')
+                        logger.exception('error scheduling asyncable')
 
     except (SystemExit, KeyboardInterrupt, GeneratorExit):
         pass

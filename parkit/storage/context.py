@@ -31,14 +31,10 @@ def transaction_context(
         thread.local.context.push(env, write, iterator)
         stack_changed = True
     try:
-        error = None
         yield stack[-1].transaction, stack[-1].cursors, stack[-1].changed
-    except GeneratorExit:
-        pass
     except BaseException as exc:
-        error = exc
-    finally:
         if stack_changed:
-            thread.local.context.pop(env, error)
-        if error is not None:
-            raise error
+            thread.local.context.pop(env, abort = True)
+        raise exc
+    if stack_changed:
+        thread.local.context.pop(env, abort = False)

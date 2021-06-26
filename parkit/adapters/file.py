@@ -3,6 +3,7 @@
 # reviewed:
 #
 import codecs
+import datetime
 import logging
 import pickle
 
@@ -102,7 +103,8 @@ class File(FileIO):
             metadata['content-type'] = 'application/python-pandas-dataframe'
             metadata['content-properties'] = dict(
                 columns = data.columns.to_list(),
-                type = get_qualified_class_name(data)
+                type = get_qualified_class_name(data),
+                nrows = len(data)
             )
         finally:
             self.mode = stash
@@ -148,6 +150,7 @@ class File(FileIO):
                 metadata['content-properties'] = dict(
                     type = get_qualified_class_name(value)
                 )
+            metadata['last-modified'] = str(datetime.datetime.now())
             super(File, self.__class__).metadata.fset(self, metadata) # type: ignore
 
     @property
@@ -156,9 +159,12 @@ class File(FileIO):
 
     @metadata.setter
     def metadata(self, value: Dict[str, Any]):
-        value = {
-            k: v
-            for k, v in value.items()
-            if k not in ['content-type', 'content-properties']
-        }
-        super(File, self.__class__).metadata.fset(self, value) # type: ignore
+        with transaction_context(self._env, write = True):
+            metadata = self.metadata
+            value = {
+                k: v
+                for k, v in value.items()
+                if k not in ['last-modified', 'content-type', 'content-properties']
+            }
+            metadata.update(value)
+            super(File, self.__class__).metadata.fset(self, metadata) # type: ignore

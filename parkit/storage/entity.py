@@ -96,7 +96,8 @@ class Entity(metaclass = EntityMeta):
         _, self._env, self._namedb, self._attrdb, self._versdb, self._descdb = \
         get_environment_threadsafe(
             self._storage_path,
-            self._namespace
+            self._namespace,
+            create = create
         )
 
         self._userdb: List[lmdb._Database] = []
@@ -295,21 +296,19 @@ class Entity(metaclass = EntityMeta):
         implicit = False
     ):
         try:
-            if isinstance(error, lmdb.Error):
-                obj_uuid = txn.get(key = self._encname, db = self._namedb)
-                if obj_uuid != self._uuid_bytes:
-                    raise ObjectNotFoundError() from error
-        except lmdb.Error:
-            pass
-        finally:
-            if implicit:
-                try:
+            try:
+                if isinstance(error, lmdb.Error):
+                    obj_uuid = txn.get(key = self._encname, db = self._namedb)
+                    if obj_uuid != self._uuid_bytes:
+                        raise ObjectNotFoundError() from error
+            finally:
+                if implicit:
                     txn.abort()
-                except lmdb.Error:
-                    pass
-        if isinstance(error, lmdb.Error):
-            raise TransactionError() from error
-        raise error
+            if isinstance(error, lmdb.Error):
+                raise TransactionError() from error
+            raise error
+        except lmdb.Error as exc:
+            raise TransactionError() from exc
 
     @property
     def site_uuid(self) -> str:

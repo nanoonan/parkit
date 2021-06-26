@@ -6,15 +6,16 @@ import time
 import uuid
 
 from typing import (
-    Any, Callable, Dict, Iterator, Optional, Tuple, Union
+    Any, ByteString, Callable, cast, Dict, Iterator, Optional, Tuple, Union
 )
 
+import cloudpickle
 import dateparser
 
 import parkit.constants as constants
 
+from parkit.adapters.asyncable import Asyncable
 from parkit.adapters.object import Object
-from parkit.adapters.task import Task
 from parkit.storage.context import transaction_context
 from parkit.storage.namespace import Namespace
 from parkit.utility import resolve_path
@@ -35,11 +36,17 @@ class Frequency(enum.Enum):
 
 class Scheduler(Object):
 
+    encode_attr_value: Optional[Callable[..., ByteString]] = \
+    cast(Callable[..., ByteString], staticmethod(cloudpickle.dumps))
+
+    decode_attr_value: Optional[Callable[..., Any]] = \
+    cast(Callable[..., Any], staticmethod(cloudpickle.loads))
+
     def __init__(
         self,
         path: str,
         /, *,
-        task: Optional[Task] = None,
+        asyncable: Optional[Asyncable] = None,
         args: Optional[Tuple[Any, ...]] = None,
         kwargs: Optional[Dict[str, Any]] = None,
         on_init: Optional[Callable[[bool], None]] = None,
@@ -47,7 +54,7 @@ class Scheduler(Object):
         create: bool = True,
         bind: bool = False
     ):
-        self.__task: Task
+        self.__asyncable: Asyncable
         self.__args: Tuple[Any, ...]
         self.__kwargs: Dict[str, Any]
 
@@ -58,9 +65,9 @@ class Scheduler(Object):
 
         def _on_init(created: bool):
             if created:
-                if task is None:
+                if asyncable is None:
                     raise ValueError()
-                self.__task = task
+                self.__asyncable = asyncable
                 self.__args = args if args is not None else ()
                 self.__kwargs = kwargs if kwargs is not None else {}
             if on_init:
@@ -72,8 +79,8 @@ class Scheduler(Object):
         )
 
     @property
-    def task(self) -> Task:
-        return self.__task
+    def asyncable(self) -> Asyncable:
+        return self.__asyncable
 
     @property
     def args(self) -> Tuple[Any, ...]:
@@ -87,7 +94,7 @@ class Scheduler(Object):
         self.drop()
 
 def schedule(
-    task: Task,
+    asyncable: Asyncable,
     *args,
     **kwargs
 ) -> Scheduler:
@@ -98,13 +105,13 @@ def schedule(
         period = kwargs['period'] if 'period' in kwargs else None,
         start = kwargs['start'] if 'start' in kwargs else None,
         max_times = kwargs['max_times'] if 'max_times' in kwargs else None,
-        task = task,
+        asyncable = asyncable,
         args = args,
         kwargs = {
             key: value for key, value in kwargs.items() \
             if key not in ['frequency', 'period', 'start', 'max_times']
         },
-        site_uuid = task.site_uuid,
+        site_uuid = asyncable.site_uuid,
         create = True,
         bind = False
     )
@@ -133,7 +140,7 @@ class Periodic(Scheduler):
         self,
         path: str,
         /, *,
-        task: Optional[Task] = None,
+        asyncable: Optional[Asyncable] = None,
         args: Optional[Tuple[Any, ...]] = None,
         kwargs: Optional[Dict[str, Any]] = None,
         frequency: Optional[Frequency] = None,
@@ -181,7 +188,7 @@ class Periodic(Scheduler):
                 self.__max_times = max_times if max_times is not None else sys.maxsize
 
         super().__init__(
-            path, task = task, args = args, kwargs = kwargs,
+            path, asyncable = asyncable, args = args, kwargs = kwargs,
             site_uuid = site_uuid, on_init = on_init,
             create = create, bind = bind
         )

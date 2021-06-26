@@ -32,7 +32,7 @@ if __name__ == '__main__':
 
         polling_interval = getenv(constants.MONITOR_POLLING_INTERVAL_ENVNAME, float)
 
-        termination_queue = Queue(constants.NODE_TERMINATION_QUEUE_PATH)
+        termination_queue = Queue(constants.NODE_TERMINATION_QUEUE_PATH, create = True)
 
         for i in polling_loop(polling_interval):
 

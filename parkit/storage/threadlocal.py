@@ -27,13 +27,16 @@ class ExplicitCursorDict(dict):
         self._txn = txn
 
     def __getitem__(self, database: Any) -> lmdb.Cursor:
-        key = id(database)
-        if not dict.__contains__(self, key):
-            database = get_database_threadsafe(key)
-            cursor = self._txn.cursor(db = database)
-            dict.__setitem__(self, key, cursor)
-            return cursor
-        return dict.__getitem__(self, key)
+        try:
+            key = id(database)
+            if not dict.__contains__(self, key):
+                database = get_database_threadsafe(key)
+                cursor = self._txn.cursor(db = database)
+                dict.__setitem__(self, key, cursor)
+                return cursor
+            return dict.__getitem__(self, key)
+        except lmdb.Error as exc:
+            raise TransactionError() from exc
 
 class ImplicitCursorDict():
 
@@ -74,19 +77,22 @@ class ContextStacks():
         write: bool = False,
         internal: bool = False,
     ) -> Tuple[lmdb.Transaction, CursorDict, Set[Any], bool]:
-        if not self.stacks[env] or \
-        write and not self.stacks[env][-1].write or \
-        internal and self.stacks[env][-1].iterator:
-            txn = env.begin(
-                write = write, buffers = True, parent = None
+        try:
+            if not self.stacks[env] or \
+            write and not self.stacks[env][-1].write or \
+            internal and self.stacks[env][-1].iterator:
+                txn = env.begin(
+                    write = write, buffers = True, parent = None
+                )
+                return (txn, ImplicitCursorDict(txn), set(), True)
+            return (
+                self.stacks[env][-1].transaction,
+                self.stacks[env][-1].cursors,
+                self.stacks[env][-1].changed,
+                False
             )
-            return (txn, ImplicitCursorDict(txn), set(), True)
-        return (
-            self.stacks[env][-1].transaction,
-            self.stacks[env][-1].cursors,
-            self.stacks[env][-1].changed,
-            False
-        )
+        except lmdb.Error as exc:
+            raise TransactionError() from exc
 
     def push(
         self,
@@ -107,33 +113,30 @@ class ContextStacks():
     def pop(
         self,
         env: lmdb.Environment,
-        error: Optional[BaseException] = None
+        /, *,
+        abort: bool = False
     ):
         try:
-            context = self.stacks[env][-1]
-            if not error:
-                if context.write:
-                    for obj in context.changed:
-                        obj._increment_version(context.cursors)
+            try:
+                context = self.stacks[env][-1]
+                if not abort:
+                    if context.write:
+                        for obj in context.changed:
+                            obj._increment_version(context.cursors)
+                        for cursor in context.cursors.values():
+                            cursor.close()
+                        context.transaction.commit()
+                else:
                     for cursor in context.cursors.values():
                         cursor.close()
-                    context.transaction.commit()
-            else:
-                for cursor in context.cursors.values():
-                    cursor.close()
+                    context.transaction.abort()
+            except BaseException as exc:
                 context.transaction.abort()
-        except BaseException as exc:
-            try:
-                context.transaction.abort()
-            except lmdb.Error:
-                pass
-            if isinstance(exc, lmdb.Error):
-                raise TransactionError() from exc
-            raise exc
-        finally:
-            self.stacks[env].pop()
-            if error is not None:
-                raise error
+                raise exc
+            finally:
+                self.stacks[env].pop()
+        except lmdb.Error as exc:
+            raise TransactionError from exc
 
 class ThreadLocalVars(threading.local):
 

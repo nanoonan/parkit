@@ -97,31 +97,39 @@ class FileIO(Object):
         return self._closed
 
     def __enter__(self):
-        self._closed = False
         if 'x' in self._sorted_mode:
             thread.local.context.push(self._env, True, False)
-        if 'w' not in self._sorted_mode:
-            self._load_buffer(binary = 'b' in self._sorted_mode)
-        else:
-            self._buffer = mmap.mmap(-1, self._bufsize) \
-            if 'b' in self._sorted_mode else io.StringIO(newline = None)
-        return self
+        try:
+            self._closed = False
+            if 'w' not in self._sorted_mode:
+                self._load_buffer(binary = 'b' in self._sorted_mode)
+            else:
+                self._buffer = mmap.mmap(-1, self._bufsize) \
+                if 'b' in self._sorted_mode else io.StringIO(newline = None)
+            return self
+        except BaseException as exc:
+            if self._buffer is not None:
+                del self._buffer
+            self._pos = 0
+            self._extent = 0
+            self._buffer = None
+            self._closed = True
+            raise exc
 
     def __exit__(self, error_type: type, error: Optional[Any], traceback: Any):
         try:
             if self.writable():
                 assert isinstance(self._buffer, (mmap.mmap, io.StringIO))
                 self._save_buffer()
-            if 'x' in self._sorted_mode:
-                thread.local.context.pop(self._env, error)
         finally:
-            del self._buffer
+            if self._buffer is not None:
+                del self._buffer
             self._pos = 0
             self._extent = 0
             self._buffer = None
             self._closed = True
-            if 'x' not in self._sorted_mode and error is not None:
-                raise error
+            if 'x' in self._sorted_mode:
+                thread.local.context.pop(self._env, abort = error is not None)
 
     @property
     def encoding(self) -> str:

@@ -28,7 +28,15 @@ import_site(getenv(constants.GLOBAL_SITE_STORAGE_PATH_ENVNAME, str), create = Tr
 
 class PidTable(Dict):
 
-    def __init__(self):
+    def __init__(
+        self,
+        path: Optional[str] = constants.PIDTABLE_DICT_PATH,
+        /, *,
+        site_uuid: Optional[str] = \
+        get_site_uuid(getenv(constants.GLOBAL_SITE_STORAGE_PATH_ENVNAME, str)),
+        create: bool = True,
+        bind: bool = True
+    ):
 
         self.__counter: int
 
@@ -37,9 +45,9 @@ class PidTable(Dict):
                 self.__counter = 0
 
         super().__init__(
-            constants.PIDTABLE_DICT_PATH, on_init = on_init,
-            site_uuid = get_site_uuid(getenv(constants.GLOBAL_SITE_STORAGE_PATH_ENVNAME, str)),
-            create = True, bind = True
+            path, on_init = on_init,
+            site_uuid = site_uuid,
+            create = create, bind = bind
         )
 
     def __enter__(self):
@@ -47,7 +55,7 @@ class PidTable(Dict):
         return self
 
     def __exit__(self, error_type: type, error: Optional[Any], traceback: Any):
-        thread.local.context.pop(self._env, error)
+        thread.local.context.pop(self._env, abort = error is not None)
 
     def next_counter_value(self):
         with transaction_context(self._env, write = True):

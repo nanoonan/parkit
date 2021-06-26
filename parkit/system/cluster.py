@@ -9,8 +9,8 @@ from typing import (
 import parkit.constants as constants
 import parkit.storage.threadlocal as thread
 
-from parkit.adapters.asyncexecution import AsyncExecution
 from parkit.adapters.dict import Dict
+from parkit.adapters.task import Task
 from parkit.exceptions import SiteNotSpecifiedError
 from parkit.node import (
     launch_node,
@@ -109,15 +109,15 @@ def disable_tasks(*, site_uuid: Optional[str] = None) -> bool:
             return True
         return False
 
-def task_executions(
+def tasks(
     status_filter: Optional[List[str]] = None,
     /, *,
     site_uuid: Optional[str] = None
 ):
     for obj in Namespace(
-        constants.EXECUTION_NAMESPACE, site_uuid = site_uuid,
+        constants.TASK_NAMESPACE, site_uuid = site_uuid,
         create = True
     ):
-        if isinstance(obj, AsyncExecution):
+        if isinstance(obj, Task):
             if status_filter is None or obj.status in status_filter:
                 yield obj
