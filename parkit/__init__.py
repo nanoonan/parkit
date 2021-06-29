@@ -9,6 +9,7 @@ from parkit.adapters.asyncable import (
 )
 from parkit.adapters.dict import Dict
 from parkit.adapters.file import File
+from parkit.adapters.fileio import FileIO
 from parkit.adapters.object import Object
 from parkit.adapters.queue import Queue
 from parkit.adapters.scheduler import (
@@ -72,7 +73,8 @@ from parkit.utility import (
     get_pagesize,
     getenv,
     setenv,
-    polling_loop
+    polling_loop,
+    Timer
 )
 
 import parkit.postinit

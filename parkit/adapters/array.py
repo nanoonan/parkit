@@ -151,7 +151,7 @@ class Array(Sized, metaclass = ArrayMeta):
 
         self._maxsize_cached = self.__maxsize
 
-    def __setstate__(self, from_wire: Tuple[str, str, str]):
+    def __setstate__(self, from_wire: Any):
         super().__setstate__(from_wire)
         self._maxsize_cached = self.__maxsize
 

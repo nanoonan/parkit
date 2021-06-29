@@ -7,7 +7,8 @@ import logging
 import mmap
 
 from typing import (
-    Any, ByteString, Callable, Dict, Iterator, List, Optional, Union
+    Any, ByteString, Callable, Dict, Iterator, List,
+    Optional, Tuple, Union
 )
 
 import parkit.storage.threadlocal as thread
@@ -52,6 +53,7 @@ class FileIO(Object):
             if created:
                 self._size = 0
                 self._content_binary = memoryview(b'')
+                self._bufsize = bufsize if bufsize else 2147483648
             if mode:
                 sorted_mode = ''.join(sorted(mode))
                 if sorted_mode.replace('x', '') not in valid_modes:
@@ -66,6 +68,14 @@ class FileIO(Object):
             path, metadata = metadata, site_uuid = site_uuid,
             on_init = _on_init, create = create, bind = bind
         )
+
+    def __getstate__(self) -> Any:
+        return (super().__getstate__(), self._sorted_mode, self._bufsize)
+
+    def __setstate__(self, from_wire: Any):
+        super().__setstate__(from_wire[0])
+        self._sorted_mode = from_wire[1]
+        self._bufsize = from_wire[2]
 
     def __iter__(self) -> Iterator[Union[str, ByteString]]:
         while True:

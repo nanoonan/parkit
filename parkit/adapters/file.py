@@ -25,6 +25,11 @@ from parkit.utility import (
 
 logger = logging.getLogger(__name__)
 
+reserved_metadata_keys = [
+    'last-modified', 'content-encoding', 'content-type',
+    'content-properties'
+]
+
 class File(FileIO):
 
     def __get_pandas_dataframe(self) -> pd.DataFrame:
@@ -114,6 +119,8 @@ class File(FileIO):
         data: np.ndarray,
         metadata: Dict[str, Any]
     ):
+        if not data.flags.c_contiguous:
+            data = np.ascontiguousarray(data)
         self._content_binary = data.data
         self._size = data.data.nbytes
         metadata['content-type'] = 'application/python-numpy-ndarray'
@@ -129,6 +136,9 @@ class File(FileIO):
             raise ValueError()
         with transaction_context(self._env, write = True):
             metadata = self.metadata
+            for key in reserved_metadata_keys:
+                if key in metadata:
+                    del metadata[key]
             if isinstance(value, str):
                 self._size = len(value)
                 self._content_binary = memoryview(value.encode(self.encoding))
@@ -160,11 +170,15 @@ class File(FileIO):
     @metadata.setter
     def metadata(self, value: Dict[str, Any]):
         with transaction_context(self._env, write = True):
-            metadata = self.metadata
+            metadata = {
+                k: v
+                for k, v in self.metadata.items()
+                if k in reserved_metadata_keys
+            }
             value = {
                 k: v
                 for k, v in value.items()
-                if k not in ['last-modified', 'content-type', 'content-properties']
+                if k not in reserved_metadata_keys
             }
             metadata.update(value)
             super(File, self.__class__).metadata.fset(self, metadata) # type: ignore

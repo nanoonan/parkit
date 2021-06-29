@@ -40,7 +40,7 @@ class Timer():
 
     def stop(self):
         print(
-            'timer for %s: %f ms', self._name,
+            self._name,
             (time.time_ns() - self._start) / 1e6
         )
 
@@ -141,7 +141,7 @@ def resolve_name(name: str) -> str:
     if not name:
         raise ValueError()
     if name.isascii() and \
-    name.replace('_', '').replace('-', '').isalnum():
+    name.replace('_', '').replace('-', '').replace('.', '').isalnum():
         return name
     raise ValueError()
 
@@ -162,14 +162,12 @@ def resolve_path(path: Optional[str]) -> Tuple[str, str, bool]:
     if segments and \
     all(
         segment.isascii() and \
-        segment.replace('_', '').replace('-', '').isalnum()
+        segment.replace('_', '').replace('-', '').replace('.', '').isalnum()
         for segment in segments[:-1]
     ):
-        if segments[-1].isascii() and \
-        segments[-1].replace('_', '').replace('-', '').isalnum():
-            return \
-            (constants.DEFAULT_NAMESPACE, segments[0], False) if len(segments) == 1 else \
-            ('/'.join(segments[0:-1]), segments[-1], False)
+        return \
+        (constants.DEFAULT_NAMESPACE, segments[0], False) if len(segments) == 1 else \
+        ('/'.join(segments[0:-1]), segments[-1], False)
     raise ValueError()
 
 def resolve_namespace(namespace: Optional[str]) -> str:
@@ -177,7 +175,8 @@ def resolve_namespace(namespace: Optional[str]) -> str:
         return constants.DEFAULT_NAMESPACE
     segments = [segment for segment in namespace.split('/') if len(segment)]
     if all(
-        segment.isascii() and segment.replace('_', '').replace('-', '').isalnum()
+        segment.isascii() and \
+        segment.replace('_', '').replace('-', '').replace('.', '').isalnum()
         for segment in segments
     ):
         return '/'.join(segments)

@@ -133,14 +133,14 @@ class Entity(metaclass = EntityMeta):
             return self._uuid_bytes == other._uuid_bytes
         return False
 
-    def __getstate__(self) -> Tuple[str, str, str]:
+    def __getstate__(self) -> Any:
         return (
             self._site_uuid,
             self._namespace,
             self._encname.decode('utf-8'),
         )
 
-    def __setstate__(self, from_wire: Tuple[str, str, str]):
+    def __setstate__(self, from_wire: Any):
         self._site_uuid, self._namespace, name = from_wire
         self._storage_path = get_storage_path(self._site_uuid)
         self._create = False
