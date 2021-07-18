@@ -2,12 +2,14 @@
 #
 # reviewed: 6/14/21
 #
+import copy
 import importlib
 import logging
 import os
 import platform
 import sys
 import subprocess
+import threading
 
 from typing import (
     Dict, List, Optional
@@ -61,8 +63,24 @@ def terminate_all_nodes(
                         float
                     )
                 )
+        threads = []
+
+        class Terminator(threading.Thread):
+
+            def __init__(self, node_uid, pid):
+                super().__init__()
+                self._node_uid = node_uid
+                self._pid = pid
+
+            def run(self):
+                 terminate_node(self._node_uid, self._pid)
+
         for node_uid, pid in get_nodes():
-            terminate_node(node_uid, pid)
+            threads.append(Terminator(node_uid, pid))
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
     except Exception:
         logger.exception('error terminating cluster')
 

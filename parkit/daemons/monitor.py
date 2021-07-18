@@ -24,7 +24,6 @@ logger = logging.getLogger(__name__)
 if __name__ == '__main__':
 
     try:
-
         node_uid = getenv(constants.NODE_UID_ENVNAME, str)
         cluster_uid = getenv(constants.CLUSTER_UID_ENVNAME, str)
 

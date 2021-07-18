@@ -43,7 +43,7 @@ SCHEDULER_DAEMON_MODULE: str = 'parkit.daemons.scheduler'
 
 LMDB_PROFILES: Profiles = dict(
 	default = {
-		'LMDB_INITIAL_MAP_SIZE': 134217728,
+		'LMDB_INITIAL_MAP_SIZE': 268435456,
 		'LMDB_WRITE_MAP': True,
 		'LMDB_METASYNC': True,
 		'LMDB_MAP_ASYNC': True,
@@ -56,7 +56,7 @@ LMDB_PROFILES: Profiles = dict(
 		'LMDB_MAX_READERS': 256
 	},
 	memory = {
-		'LMDB_INITIAL_MAP_SIZE': 134217728,
+		'LMDB_INITIAL_MAP_SIZE': 268435456,
 		'LMDB_WRITE_MAP': False,
 		'LMDB_METASYNC': False,
 		'LMDB_MAP_ASYNC': False,

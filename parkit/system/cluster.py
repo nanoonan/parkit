@@ -101,7 +101,7 @@ def disable_tasks(*, site_uuid: Optional[str] = None) -> bool:
         if any(
             True for entry in pidtable.get_snapshot().values() \
             if isinstance(entry['node_uid'], str) and \
-            entry['node_uid'].split('-')[0] == monitor_name and \
+            #entry['node_uid'].split('-')[0] == monitor_name and \
             isinstance(entry['cluster_uid'], str) and \
             entry['cluster_uid'] == site_uuid
         ):

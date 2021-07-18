@@ -68,24 +68,23 @@ class File(FileIO):
     def get_content(
         self,
         *,
-        zero_copy: bool = False
+        zero_copy: bool = True
     ) -> Optional[Any]:
         if not self._closed:
             raise ValueError()
-        need_copy = not bool(thread.local.context.stacks[self._env])
         with transaction_context(self._env, write = False):
             try:
                 metadata = self.metadata
                 return {
                     'application/octet-stream': lambda: self.__get_octet_stream(
-                        zero_copy if not need_copy else False
+                        zero_copy
                     ),
                     'application/python-pickle': lambda: pickle.loads(self._content_binary),
                     'application/python-pandas-dataframe': lambda: self.__get_pandas_dataframe(),
                     'application/python-numpy-ndarray': lambda: self.__get_numpy_ndarray(
                         self._content_binary,
                         metadata,
-                        zero_copy if not need_copy else False
+                        zero_copy
                     ),
                     'text/plain': lambda: codecs.decode(
                         self._content_binary, encoding = self.encoding

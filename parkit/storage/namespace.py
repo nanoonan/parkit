@@ -78,8 +78,6 @@ class Namespace():
         cursize = self.maxsize
         if value == cursize:
             return
-        if value < self.maxsize:
-            raise ValueError()
         if value % get_pagesize() != 0:
             raise ValueError()
         set_namespace_size(value, self._storage_path, self._path)

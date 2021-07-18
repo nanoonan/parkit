@@ -1,6 +1,8 @@
 0.0.10
 - code review
 - update docs
+- cluster starting n - 1 nodes?
+- tasks with external dependencies not reloaded when only dependency changed (use modulefinder?)
 
 0.0.11
 - shared attributes not always working in Jupyter context for sub-classes defined in notebook
@@ -10,4 +12,3 @@
 - replace file observer?
 - should have a max concurrency limit?
 - lru_cache limits
-- tasks with external dependencies not reloaded when only dependency changed (use modulefinder?)
