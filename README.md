@@ -9,6 +9,8 @@ The *parkit* package provides some basic Python classes that support multiproces
 
 Tasks are typically created using the *asyncable* decorator for functions. Tasks are runnable synchronously or asynchronously. An asynchronous task is scheduled to run on a pool of daemon worker processes. A cron-like scheduling facility is also available to schedule tasks to run one or more times in the future.  
 
+Collections classes like dictionaries implement standard Python interfaces but operations always execute in a transactional context across processes. A transaction may be implicit or explicit. An transaction context manager opens an explicit transaction allowing users to modify multiple objects within the same transaction.
+
 A useful feature of LMDB is that data is memory mapped from the database file. Zero-copy access is available to the memory mapped segments. One example of this is the *File* object that supports memory mapped Numpy arrays with zero copy (read) access. 
 
 Some code examples in the form of Jupyter notebooks are in **parkit/tests**.
